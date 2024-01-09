@@ -1,0 +1,65 @@
+[package]
+name = "cruzbit"
+version = "1.0.0"
+authors = ["Christian Smith <christian@dhp.com>"]
+edition = "2021"
+rust-version = "1.70.0"
+description = "A simple decentralized peer-to-peer ledger implementation"
+readme = "README.md"
+homepage = "https://cruzb.it"
+repository = "https://github.com/christian-smith/cruzbit"
+keywords = ["bitcoin", "crypto"]
+categories = ["cryptography::cryptocurrencies"]
+license = "MIT"
+default-run = "client"
+
+[[bin]]
+name = "client"
+
+[[bin]]
+name = "wallet"
+
+[dependencies]
+argon2 = "0.5"
+base64ct = { version = "1.6", features = ["std"] }
+bincode = "1.3"
+console = "0.15"
+cruzbit-leveldb = "1.0"
+crypto_secretbox = "0.1"
+cuckoofilter = "0.5"
+dialoguer = { version = "0.11", features = ["completion"] }
+domain = "0.9"
+ed25519-compact = "2.0"
+env_logger = { version = "0.10", default-features = false, features = ["humantime"] }
+faster-hex = { version = "0.9", features = ["serde"] }
+futures = { version = "0.3", default-features = false }
+getopts = "0.2"
+humantime = "2.1"
+ibig = "0.3"
+igd = "0.12"
+irc = { version = "0.15", default-features = false, features = ["tls-rust"] }
+log = "0.4"
+lz4 = "1.24"
+network-interface = "1.1"
+num-bigint = "0.4"
+rand = { version = "0.8", default-features = false, features = ["std_rng"] }
+rcgen = "0.12"
+rustls-pemfile = "2.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+serde_with = "3.4"
+sha3 = "0.10"
+thiserror = "1.0"
+tokio = { version = "1.35", features = ["macros", "net", "rt-multi-thread", "signal", "io-util"] }
+tokio-rustls = "0.25"
+tokio-tungstenite = { version = "0.21", features = ["rustls-tls-webpki-roots"] }
+
+[dev-dependencies]
+tempfile = "3.9"
+
+[build-dependencies]
+cmake = "0.1"
+
+[features]
+cuda = []
+opencl = []
