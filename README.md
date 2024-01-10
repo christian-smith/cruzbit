@@ -12,6 +12,13 @@
   </table>
 </div>
 
+<p align="center">
+  <a href="https://cruzb.it"><img src="https://img.shields.io/badge/https-cruzb.it-blue"></a>
+  <a href="https://discord.gg/MRrEHYw"><img src="https://img.shields.io/badge/chat-discord-%237289da"></a>
+  <a href="https://www.rust-lang.org"><img src="https://img.shields.io/badge/built_with-Rust-dca282.svg?style=flat-square"></a>
+  <a href="https://github.com/christian-smith/cruzbit/blob/master/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg"></a>
+</p>
+
 ## What is cruzbit?
 [cruzbit](https://cruzb.it) is a simple decentralized peer-to-peer ledger implementation. cruzbit is very similar to [Bitcoin](https://www.bitcoin.com/bitcoin.pdf) with the following notable differences:
 
@@ -21,7 +28,7 @@
 * **No UTXO set** - This is a consequence of the second point. It considerably simplifies ledger construction and management as well as requires a wallet to know only about its public key balances and the current block height. It also allows the ledger to map more directly to the well-understood concept of a [double-entry bookkeeping system](https://en.wikipedia.org/wiki/Double-entry_bookkeeping_system). In cruzbit, the sum of all public key balances must equal the issuance at the current block height. This isn't the first ledger to get rid of the UTXO set model but I think we do it in a uniquely simple way.
 * **No scripting** - This is another consequence of the second point. Signatures are simply signatures and not tiny scripts. It's a bit simpler and arguably safer. It does limit functionality, e.g. there is no native notion of a multi-signature transaction, however, depending on your needs, you can come _close_ to accomplishing that using [mechanisms external to cruzbit](https://en.wikipedia.org/wiki/Shamir%27s_Secret_Sharing).
 * **No fixed block size limit** - Since transactions in cruzbit are more-or-less fixed size we cap blocks by transaction count instead, with the initial limit being 10,000 transactions. This per-block transaction limit increases with "piecewise-linear-between-doublings growth." This means the limit doubles roughly every 2 years by block height and increases linearly between doublings up until a hard limit of 2,147,483,647. This was directly inspired by [BIP 101](https://github.com/bitcoin/bips/blob/master/bip-0101.mediawiki). We use block height instead of time since another change in cruzbit is that all block headers contain the height (as well as the total cumulative chain work.)
-* **Reference implementation is in [Go](https://golang.org/)** - Perhaps more accessible than C++. Hopefully it makes blockchain programming a bit easier to understand and attracts a wider variety of developer interest.
+* **[Reference implementation](https://github.com/cruzbit/cruzbit) is in [Go](https://golang.org/)** - Perhaps more accessible than C++. Hopefully it makes blockchain programming a bit easier to understand and attracts a wider variety of developer interest.
 * **Web-friendly peer protocol** - Peer communication is via secure [WebSockets](https://developer.mozilla.org/en-US/docs/Web/API/WebSockets_API). And the peer protocol and all primitives are structured in [JSON](https://www.json.org/). This should make working with the protocol easy for just about every modern development environment.
 
 ## Getting started mining
