@@ -161,9 +161,42 @@ pub async fn query_for_peers() -> Result<Vec<String>, DnsSeederError> {
     let msg = MessageBuilder::from_target(StaticCompressor::new(StreamTarget::new_vec())).unwrap();
     let mut msg = msg.question();
     msg.push((Dname::<Vec<u8>>::from_str(DNAME).unwrap(), Rtype::A))?;
-
     let message = msg.finish().into_target();
+
     let mut peers = Vec::new();
+
+    async fn handle_query(
+        socket: &UdpSocket,
+        addr: SocketAddr,
+        message: &StreamTarget<Vec<u8>>,
+    ) -> Result<Vec<String>, DnsSeederError> {
+        socket
+            .send_to(message.as_dgram_slice(), addr)
+            .await
+            .map_err(|err| DnsSeederError::Socket(SocketError::SendTo(addr, err)))?;
+
+        let mut buffer = vec![0; 1232];
+        let _ = timeout(Duration::from_secs(5), socket.recv_from(&mut buffer))
+            .await
+            .map_err(|err| DnsSeederError::QueryTimeout(addr, err))?;
+
+        let response = Message::from_octets(buffer).map_err(DnsSeederError::ShortMessage)?;
+        let mut peers = Vec::new();
+
+        let answers = response
+            .answer()
+            .map_err(|err| DnsSeederError::Parsing(ParsingError::DnsData(err)))?;
+
+        for record in answers.limit_to::<AllRecordData<_, _>>() {
+            let a = record.map_err(DnsSeederError::ParseQuestion)?;
+
+            info!("Seeder returned: {}", a.data());
+            let peer = format!("{}:{}", a.data(), DEFAULT_CRUZBIT_PORT);
+            peers.push(peer);
+        }
+
+        Ok(peers)
+    }
 
     for seeder in SEEDERS.iter().map(|addr| resolve_host(addr)) {
         let seeder = match seeder {
@@ -173,46 +206,12 @@ pub async fn query_for_peers() -> Result<Vec<String>, DnsSeederError> {
                 continue;
             }
         };
-        socket
-            .send_to(message.as_dgram_slice(), seeder)
-            .await
-            .map_err(|err| SocketError::SendTo(seeder, err))?;
 
-        let mut buffer = vec![0; 1232];
-        if timeout(Duration::from_secs(5), socket.recv_from(&mut buffer))
-            .await
-            .is_err()
-        {
-            let err = DnsSeederError::QueryTimeout(seeder);
-            error!("{:?}", err);
-            continue;
-        }
-
-        let response = match Message::from_octets(buffer).map_err(DnsSeederError::ShortMessage) {
-            Ok(response) => response,
+        match handle_query(&socket, seeder, &message).await {
+            Ok(seeder_peers) => peers.extend(seeder_peers),
             Err(err) => {
                 error!("{:?}", err);
                 continue;
-            }
-        };
-
-        match response.answer().map_err(ParsingError::DnsData) {
-            Ok(answers) => {
-                for record in answers.limit_to::<AllRecordData<_, _>>() {
-                    let a = match record.map_err(DnsSeederError::ParseQuestion) {
-                        Ok(v) => v,
-                        Err(err) => {
-                            error!("{:?}", err);
-                            continue;
-                        }
-                    };
-                    info!("Seeder returned: {}", a.data());
-                    let peer = format!("{}:{}", a.data(), DEFAULT_CRUZBIT_PORT);
-                    peers.push(peer);
-                }
-            }
-            Err(err) => {
-                error!("{:?}", DnsSeederError::Parsing(err));
             }
         }
     }
@@ -227,7 +226,7 @@ pub enum DnsSeederError {
     #[error("failed to parse question")]
     ParseQuestion(#[source] domain::base::wire::ParseError),
     #[error("connecting timeout querying seeder: {0}")]
-    QueryTimeout(SocketAddr),
+    QueryTimeout(SocketAddr, #[source] tokio::time::error::Elapsed),
 
     #[error("parsing")]
     Parsing(#[from] ParsingError),
