@@ -122,7 +122,7 @@ async fn run() -> Result<(), WalletBinError> {
 
     loop {
         // load wallet passphrase
-        let passphrase = prompt_for_passphrase();
+        let passphrase = prompt_for_passphrase()?;
         if wallet.set_passphrase(passphrase)? {
             break;
         }
@@ -843,12 +843,12 @@ fn transaction_is_relevant(wallet: &Arc<Wallet>, tx: &Transaction) -> Result<boo
 }
 
 // secure passphrase prompt helper
-fn prompt_for_passphrase() -> String {
-    Password::new()
+fn prompt_for_passphrase() -> Result<String, WalletBinError> {
+    let password = Password::new()
         .with_prompt("\nEnter passphrase")
         .with_confirmation("Confirm passphrase", "Passphrase mismatch")
-        .interact()
-        .unwrap()
+        .interact()?;
+    Ok(password)
 }
 
 /// From: <https://groups.google.com/forum/#!topic/golang-nuts/ITZV08gAugI>
