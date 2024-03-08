@@ -31,9 +31,7 @@
 * **[Reference implementation](https://github.com/cruzbit/cruzbit) is in [Go](https://golang.org/)** - Perhaps more accessible than C++. Hopefully it makes blockchain programming a bit easier to understand and attracts a wider variety of developer interest.
 * **Web-friendly peer protocol** - Peer communication is via secure [WebSockets](https://developer.mozilla.org/en-US/docs/Web/API/WebSockets_API). And the peer protocol and all primitives are structured in [JSON](https://www.json.org/). This should make working with the protocol easy for just about every modern development environment.
 
-## Getting started mining
-If you missed out on the opportunity to mine other cryptocurrencies you could give cruzbit a try!
-
+## Getting Started
 ### 1. Rust needs to be installed
 
 - MacOS / Linux (from https://www.rust-lang.org/learn/get-started)
@@ -54,33 +52,36 @@ If you missed out on the opportunity to mine other cryptocurrencies you could gi
 - Windows
   - ```winget install Kitware.CMake```
 
-### 3. Running the client
-Note: --release flag is needed for compiler optimizations
+### 3. Install the client and wallet
+Use ```cargo install cruzbit``` to install the 'client' and 'wallet' executables
 
-### Mining
+- CPU mining:
+```cargo install cruzbit```
+
+- GPU CUDA mining:
+```cargo install cruzbit --features cuda```
+
+- GPU OpenCL mining:
+```cargo install cruzbit --features opencl```
+
+## Mining
 Like Bitcoin, any blocks you mine will need to have an additional 100 blocks mined on top of them prior to the new cruzbits being applied to your balance. This is to mitigate a potentially poor user experience in the case of honest blockchain reorganizations.
 
 #### Mining with multiple keys
-```cargo run --release -- --datadir datadir --numminers 1 --keyfile keys.txt```
+```client --datadir datadir --numminers 1 --keyfile keys.txt```
 
 Instead of mining with a single public key, you can use the wallet to generate many keys and dump the public keys to a text file which the client will accept as a `--keyfile` argument. The wallet commands to do this are `genkeys` and `dumpkeys`.
 
 #### Mining with a single key
-```cargo run --release -- --datadir datadir --numminers 1 --pubkey [pub key from wallet]```
-
-#### GPU mining with OpenCL
-```cargo run --release --features opencl -- --datadir datadir --numminers 1 --keyfile keys.txt```
-
-#### GPU mining with Cuda
-```cargo run --release --features cuda -- --datadir clientdata --numminers 1 --keyfile keys.txt```
+```client --datadir datadir --numminers 1 --pubkey [pub key from wallet]```
 
 #### Not interested in mining but want to play with cruzbit?
 No problem! You can run the client with `--numminers 0` so that it can function as your wallet peer.
 
-```cargo run --release -- --datadir datadir --numminers 0```
+```client --datadir datadir --numminers 0```
 
-### 4. Running the wallet
-```cargo run --release --bin wallet -- --walletdb walletdata```
+## Wallet
+```wallet --walletdb walletdata```
 
 ## Database compatibility with golang cruzbit
 - client db data is not compatible
