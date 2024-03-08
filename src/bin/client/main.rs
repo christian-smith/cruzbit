@@ -273,6 +273,7 @@ async fn run() -> Result<(), ClientError> {
 
     let mut shutdowns = Vec::new();
     let (shutdown_chan_tx, shutdown_chan_rx) = shutdown_channel();
+
     // create and run the processor
     let processor = Processor::new(
         genesis_id,
