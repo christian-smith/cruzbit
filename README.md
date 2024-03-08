@@ -11,11 +11,11 @@
     </tr>
   </table>
 </div>
-
+<br>
 <p align="center">
   <a href="https://cruzb.it"><img src="https://img.shields.io/badge/https-cruzb.it-blue"></a>
   <a href="https://discord.gg/MRrEHYw"><img src="https://img.shields.io/badge/chat-discord-%237289da"></a>
-  <a href="https://www.rust-lang.org"><img src="https://img.shields.io/badge/built_with-Rust-dca282.svg?style=flat-square"></a>
+  <a href="https://www.rust-lang.org"><img alt="language" src="https://img.shields.io/badge/language-Rust-orange.svg" ></a>
   <a href="https://github.com/christian-smith/cruzbit/blob/master/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg"></a>
 </p>
 

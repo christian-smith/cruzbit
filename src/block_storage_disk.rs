@@ -76,7 +76,6 @@ impl BlockStorage for BlockStorageDisk {
             .with_extension(ext);
 
         // save the complete block to the filesystem
-
         let block_bytes = if self.compress {
             // compress with lz4
             let mut zout = Vec::new();
