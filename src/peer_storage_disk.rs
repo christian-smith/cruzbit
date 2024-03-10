@@ -280,7 +280,6 @@ struct PeerInfo {
 impl PeerInfo {
     /// Should we retry this connection?
     pub fn should_retry(&self) -> bool {
-        // TODO: why not self.last_attempt == 0?
         if self.last_attempt == Duration::ZERO {
             // never been tried
             return true;

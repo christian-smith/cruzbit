@@ -51,18 +51,22 @@ pub const HDR_END: &[u8] = br#"}"#;
 
 // calculate the maximum buffer length needed
 const BUF_LEN: usize = HDR_PREVIOUS.len()
+    + 64 // previous
     + HDR_HASH_LIST_ROOT.len()
+    + 64 // hash_list_root
     + HDR_TIME.len()
+    + 19 // time
     + HDR_TARGET.len()
+    + 64 // target
     + HDR_CHAIN_WORK.len()
+    + 64 // chain work
     + HDR_NONCE.len()
+    + 19 // nonce
     + HDR_HEIGHT.len()
+    + 19 // height
     + HDR_TRANSACTION_COUNT.len()
-    + HDR_END.len()
-    // TODO: what are these sizes for
-    + 4 * 64
-    + 3 * 19
-    + 10;
+    + 10 // transaction_count
+    + HDR_END.len();
 
 impl BlockHeaderHasher {
     /// Returns a newly initialized BlockHeaderHasher

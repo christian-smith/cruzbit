@@ -1320,7 +1320,6 @@ impl Peer {
                 }
             };
 
-        // TODO: balance = balances[0]?
         let mut balance = 0;
         for (_pub_key, bal) in balances {
             balance = bal;

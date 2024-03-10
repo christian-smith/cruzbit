@@ -726,7 +726,6 @@ impl Processor {
             tx_ids.insert(id, true);
         }
 
-        // TODO: how does this check for duplicates?
         // check for duplicate transactions
         if tx_ids.len() != block.transactions.len() {
             return Err(ProcessBlockTransactionsError::Duplicate(*id).into());
@@ -1282,7 +1281,6 @@ impl Processor {
         ledger: &Arc<T>,
         block_store: &Arc<U>,
     ) -> Result<Option<(BlockID, BlockHeader, u64)>, ProcessorError> {
-        // TODO: can the tip exist and not the header?
         let Some((tip_id, _height)) = ledger.get_chain_tip()? else {
             return Ok(None);
         };

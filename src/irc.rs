@@ -67,7 +67,6 @@ impl IRC {
     pub async fn run(mut self) -> Result<(), IrcError> {
         let mut stream = self.conn.stream()?;
         let sender = self.conn.sender();
-        // TODO: why is the channel name random
         let n = rand::thread_rng().gen_range(0..10);
         let channel = generate_channel_name(self.genesis_id, &n);
 
