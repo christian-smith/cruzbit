@@ -60,6 +60,10 @@ pub fn checkpoint_check(id: &BlockID, height: u64) -> Result<(), CheckpointError
                     205780,
                     "0000000089ad25388e0af7139383288203b46240da2d0651a89af0252e5fc4d3",
                 ),
+                (
+                    210000,
+                    "00000000566b413c4b5cc22a54b7aba008a6895ac9288ed44fd35e433b8e07fe",
+                )
             ])
         })
         .get(&height)
