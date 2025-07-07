@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use rand::Rng;
 use rcgen::{
-    Certificate, CertificateParams, DnType, ExtendedKeyUsagePurpose, IsCa, KeyUsagePurpose,
+    CertificateParams, DnType, ExtendedKeyUsagePurpose, IsCa, KeyUsagePurpose,
     SerialNumber,
 };
 use rustls::crypto::{verify_tls12_signature, verify_tls13_signature};
@@ -72,7 +72,6 @@ pub fn generate_self_signed_cert_and_key(
 ) -> Result<(PathBuf, PathBuf), TlsError> {
     // build the certificate
     let mut params = CertificateParams::default();
-    params.alg = &rcgen::PKCS_ECDSA_P256_SHA256;
     params.is_ca = IsCa::ExplicitNoCa;
     let serial_number = rand::rng().random_range(0..u64::MAX);
     params.serial_number = Some(SerialNumber::from(serial_number));
@@ -86,16 +85,17 @@ pub fn generate_self_signed_cert_and_key(
     params
         .extended_key_usages
         .push(ExtendedKeyUsagePurpose::ServerAuth);
-    let cert = Certificate::from_params(params)?;
+    let key_pair = rcgen::KeyPair::generate_for(&rcgen::PKCS_ECDSA_P256_SHA256)?;
+    let cert = params.self_signed(&key_pair)?;
 
     // create the cert
-    let certificate_pem = cert.serialize_pem()?;
+    let certificate_pem = cert.pem();
     let cert_path = Path::new(".").join(tls_data_dir).join(CERT_NAME);
     fs::write(&cert_path, certificate_pem)
         .map_err(|err| FileError::Write(cert_path.clone(), err))?;
 
     // create the key
-    let private_key_pem = cert.serialize_private_key_pem();
+    let private_key_pem = key_pair.serialize_pem();
     let key_path = Path::new(".").join(tls_data_dir).join(KEY_NAME);
     fs::write(&key_path, private_key_pem)
         .map_err(|err| FileError::Write(cert_path.clone(), err))?;
