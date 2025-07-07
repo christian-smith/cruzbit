@@ -28,7 +28,7 @@ cruzbit-leveldb = "1.0"
 crypto_secretbox = "0.1"
 cuckoofilter = "0.5"
 dialoguer = { version = "0.11", features = ["completion"] }
-domain = "0.9"
+domain = "0.11"
 ed25519-compact = "2.1"
 env_logger = { version = "0.10", default-features = false, features = ["humantime"] }
 faster-hex = { version = "0.10", features = ["serde"] }

@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use domain::base::iana::Rcode;
-use domain::base::{Dname, Message, MessageBuilder, Rtype, StaticCompressor, StreamTarget};
+use domain::base::{Message, MessageBuilder, Name, Rtype, StaticCompressor, StreamTarget};
 use domain::rdata::{Aaaa, AllRecordData, A};
 use log::{error, info};
 use rand::seq::SliceRandom;
@@ -123,7 +123,7 @@ impl DnsSeeder {
             addresses.shuffle(&mut rand::rng());
 
             let answer = MessageBuilder::new_vec();
-            let mut answer = answer.start_answer(&request, Rcode::NoError)?;
+            let mut answer = answer.start_answer(&request, Rcode::NOERROR)?;
 
             // return at most 4
             let limit = 4;
@@ -160,7 +160,7 @@ pub async fn query_for_peers() -> Result<Vec<String>, DnsSeederError> {
 
     let msg = MessageBuilder::from_target(StaticCompressor::new(StreamTarget::new_vec())).unwrap();
     let mut msg = msg.question();
-    msg.push((Dname::<Vec<u8>>::from_str(DNAME).unwrap(), Rtype::A))?;
+    msg.push((Name::<Vec<u8>>::from_str(DNAME).unwrap(), Rtype::A))?;
     let message = msg.finish().into_target();
 
     let mut peers = Vec::new();
