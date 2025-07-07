@@ -271,7 +271,7 @@ impl PeerManager {
                         error!("{:?}", err);
                     }
 
-                    if self.dns_seed && rand::thread_rng().gen_range(0..2) == 1 {
+                    if self.dns_seed && rand::rng().random_range(0..2) == 1 {
                         // drop a peer so we can try another
                         self.drop_random_peer().await;
                     }
@@ -664,7 +664,7 @@ impl PeerManager {
             let mut out_peers = self.out_peers.write().unwrap();
             out_peers
                 .keys()
-                .choose(&mut rand::thread_rng())
+                .choose(&mut rand::rng())
                 .cloned()
                 .and_then(|addr| out_peers.remove_entry(&addr))
         };
@@ -1034,8 +1034,7 @@ pub async fn determine_external_ip() -> Option<IpAddr> {
         "myip.dnsomatic.com",
         "whatismyip.akamai.com",
     ];
-    let mut rng = rand::thread_rng();
-    ip_services.shuffle(&mut rng);
+    ip_services.shuffle(&mut rand::rng());
 
     async fn try_connect(host: &str) -> Result<Option<IpAddr>, ExternalIpError> {
         let addr = resolve_host(&format!("{}:443", host))?;

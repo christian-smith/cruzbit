@@ -640,7 +640,7 @@ fn encrypt_private_key(priv_key: &SecretKey, passphrase: &str) -> Result<Vec<u8>
     let salt = generate_salt();
     let secret_key = stretch_passphrase(passphrase, &salt)?;
     let mut nonce = [0u8; XSalsa20Poly1305::NONCE_SIZE];
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     rng.fill_bytes(&mut nonce);
     let secretbox = XSalsa20Poly1305::new(&secret_key.into());
     let encrypted = secretbox.encrypt(&nonce.into(), &priv_key[..])?;
@@ -681,7 +681,7 @@ const ARGON_THREADS: u32 = 4;
 /// Generate a suitable salt for use with Argon2id
 fn generate_salt() -> [u8; ARGON_SALT_LENGTH] {
     let mut salt = [0u8; ARGON_SALT_LENGTH];
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     rng.fill_bytes(&mut salt);
     salt
 }

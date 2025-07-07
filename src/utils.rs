@@ -7,7 +7,7 @@ use crate::error::ParsingError;
 
 /// Returns a non-negative pseudo-random 31-bit integer as a u32
 pub fn rand_int31() -> u32 {
-    rand::thread_rng().gen_range(0..=i32::MAX) as u32
+    rand::rng().random_range(0..=i32::MAX) as u32
 }
 
 /// Returns duration since Unix epoch

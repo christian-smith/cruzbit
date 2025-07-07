@@ -1932,7 +1932,7 @@ impl Peer {
             .map_err(PeerError::ProcessorComputingMedianTimestamp)
         {
             Ok(median_timestamp) => {
-                let key_index = rand::thread_rng().gen_range(0..self.pub_keys.len());
+                let key_index = rand::rng().random_range(0..self.pub_keys.len());
                 match Miner::create_next_block(
                     tip_id,
                     tip_header,

@@ -42,7 +42,7 @@ log = "0.4"
 lz4 = "1.28"
 network-interface = "2.0"
 num-bigint = "0.4"
-rand = { version = "0.8", default-features = false, features = ["std_rng"] }
+rand = { version = "0.9", default-features = false, features = ["std_rng", "thread_rng"] }
 rcgen = "0.12"
 rustls = { version = "0.23", features = ["ring"] }
 rustls-pemfile = "2.2"

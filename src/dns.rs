@@ -120,7 +120,7 @@ impl DnsSeeder {
             }
 
             // shuffle them
-            addresses.shuffle(&mut rand::thread_rng());
+            addresses.shuffle(&mut rand::rng());
 
             let answer = MessageBuilder::new_vec();
             let mut answer = answer.start_answer(&request, Rcode::NoError)?;

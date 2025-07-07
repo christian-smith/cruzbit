@@ -56,7 +56,7 @@ impl Block {
                 time: now_as_secs(),
                 target,
                 chain_work: compute_chain_work(&target, &chain_work),
-                nonce: rand::thread_rng().gen_range(0..=MAX_NUMBER),
+                nonce: rand::rng().random_range(0..=MAX_NUMBER),
                 height,
                 transaction_count: transactions.len() as u32,
             },

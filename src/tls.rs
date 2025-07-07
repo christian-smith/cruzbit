@@ -74,8 +74,7 @@ pub fn generate_self_signed_cert_and_key(
     let mut params = CertificateParams::default();
     params.alg = &rcgen::PKCS_ECDSA_P256_SHA256;
     params.is_ca = IsCa::ExplicitNoCa;
-    let mut rng = rand::thread_rng();
-    let serial_number = rng.gen_range(0..u64::MAX);
+    let serial_number = rand::rng().random_range(0..u64::MAX);
     params.serial_number = Some(SerialNumber::from(serial_number));
     // remove the default CN
     params.distinguished_name.remove(DnType::CommonName);

@@ -121,7 +121,7 @@ impl Miner {
         num: usize,
         shutdown_chan_rx: ShutdownChanReceiver,
     ) -> Self {
-        let key_index = rand::thread_rng().gen_range(0..pub_keys.len());
+        let key_index = rand::rng().random_range(0..pub_keys.len());
 
         Self {
             pub_keys,
@@ -336,7 +336,7 @@ impl Miner {
                     }
                 });
 
-                self.key_index = rand::thread_rng().gen_range(0..self.pub_keys.len());
+                self.key_index = rand::rng().random_range(0..self.pub_keys.len());
             } else {
                 // no solution yet
                 candidate_block.header.nonce += hasher.hashes_per_attempt;

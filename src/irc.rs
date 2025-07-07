@@ -67,7 +67,7 @@ impl IRC {
     pub async fn run(mut self) -> Result<(), IrcError> {
         let mut stream = self.conn.stream()?;
         let sender = self.conn.sender();
-        let n = rand::thread_rng().gen_range(0..10);
+        let n = rand::rng().random_range(0..10);
         let channel = generate_channel_name(self.genesis_id, &n);
 
         loop {
@@ -153,7 +153,7 @@ impl IRC {
 }
 
 fn generate_random_nick() -> String {
-    let nick_bytes = rand::thread_rng().gen::<[u8; 6]>();
+    let nick_bytes = rand::rng().random::<[u8; 6]>();
     format!("cb{}", hex_string(&nick_bytes))
 }
 
