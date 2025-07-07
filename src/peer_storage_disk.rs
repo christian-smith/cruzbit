@@ -389,13 +389,17 @@ fn decode_last_success_time_key(key: &[u8]) -> Result<(Duration, SocketAddr), Pe
 }
 
 fn encode_peer_info(info: &PeerInfo) -> Result<Vec<u8>, PeerStorageError> {
-    let encode = bincode::serialize(&info).map_err(EncodingError::BincodeEncode)?;
+    let encode = bincode::serde::encode_to_vec(info, bincode::config::legacy())
+        .map_err(|e| EncodingError::BincodeEncode(Box::new(e)))?;
     Ok(encode)
 }
 
 fn decode_peer_info(encoded: Vec<u8>) -> Result<PeerInfo, PeerStorageError> {
-    let decode =
-        bincode::deserialize::<PeerInfo>(&encoded).map_err(EncodingError::BincodeDecode)?;
+    let (decode, _) = bincode::serde::decode_from_slice::<PeerInfo, _>(
+        &encoded,
+        bincode::config::legacy(),
+    )
+    .map_err(|e| EncodingError::BincodeDecode(Box::new(e)))?;
     Ok(decode)
 }
 

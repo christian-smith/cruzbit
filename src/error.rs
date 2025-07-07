@@ -90,9 +90,9 @@ pub enum EncodingError {
     #[error("failed to base64 encode bytes: {0}")]
     Base64Encode(base64ct::InvalidLengthError),
     #[error("failed to bincode decode bytes, db may be using gob (golang)")]
-    BincodeDecode(#[source] Box<bincode::ErrorKind>),
+    BincodeDecode(#[source] Box<bincode::error::DecodeError>),
     #[error("failed to bincode encode bytes")]
-    BincodeEncode(#[source] Box<bincode::ErrorKind>),
+    BincodeEncode(#[source] Box<bincode::error::EncodeError>),
     #[error("failed to hex decode bytes")]
     HexDecode(#[source] faster_hex::Error),
     #[error("failed to hex encode bytes")]

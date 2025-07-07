@@ -242,7 +242,8 @@ const U64_LENGTH: usize = mem::size_of::<u64>();
 fn encode_block_header(header: &BlockHeader, when: u64) -> Result<Vec<u8>, BlockStorageError> {
     let mut buf = Vec::new();
     buf.extend_from_slice(&when.to_be_bytes());
-    let encoded = bincode::serialize(&header).map_err(EncodingError::BincodeEncode)?;
+    let encoded = bincode::serde::encode_to_vec(header, bincode::config::legacy())
+      .map_err(|e| EncodingError::BincodeEncode(Box::new(e)))?;
     buf.extend_from_slice(&encoded);
     Ok(buf)
 }
@@ -251,8 +252,11 @@ fn decode_block_header(encoded_header: &[u8]) -> Result<(BlockHeader, u64), Bloc
     let mut when_bytes = [0u8; U64_LENGTH];
     when_bytes.copy_from_slice(&encoded_header[0..U64_LENGTH]);
     let when = u64::from_be_bytes(when_bytes);
-    let header = bincode::deserialize::<BlockHeader>(&encoded_header[U64_LENGTH..])
-        .map_err(EncodingError::BincodeDecode)?;
+    let (header, _) = bincode::serde::decode_from_slice::<BlockHeader, _>(
+        &encoded_header[U64_LENGTH..],
+        bincode::config::legacy(),
+    )
+    .map_err(|e| EncodingError::BincodeDecode(Box::new(e)))?;
     Ok((header, when))
 }
 
