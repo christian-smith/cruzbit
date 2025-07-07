@@ -41,7 +41,7 @@ pub trait TransactionQueue {
 
 #[derive(Error, Debug)]
 pub enum TransactionQueueError {
-    #[error("transaction {0} sender {} has insufficient balance", .1.as_base64())]
+    #[error("transaction {0} sender {public_key} has insufficient balance", public_key = .1.as_base64())]
     SenderBalanceInsufficient(TransactionID, PublicKey),
 
     #[error("balance cache")]
