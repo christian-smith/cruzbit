@@ -20,7 +20,7 @@ use tokio::time::{interval_at, sleep, timeout, Instant};
 use tokio_rustls::server::TlsStream;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::http::StatusCode;
-use tokio_tungstenite::tungstenite::{Error as WsError, Message as WsMessage};
+use tokio_tungstenite::tungstenite::{Bytes, Error as WsError, Message as WsMessage};
 use tokio_tungstenite::{
     connect_async_tls_with_config, Connector, MaybeTlsStream, WebSocketStream,
 };
@@ -609,7 +609,7 @@ impl Peer {
                     match msg {
                         Some(message) => {
                             let json = serde_json::to_string(&message).map_err(JsonError::Serialize)?;
-                            self.send_with_timeout(&mut ws_sender, WsMessage::Text(json)).await?;
+                            self.send_with_timeout(&mut ws_sender, WsMessage::text(json)).await?;
                         },
                         None => {
                             // close the connection if the tx is dropped
@@ -639,7 +639,7 @@ impl Peer {
                         });
                         // send it
                         let json = serde_json::to_string(&inv).map_err(JsonError::Serialize)?;
-                        self.send_with_timeout(&mut ws_sender, WsMessage::Text(json)).await?;
+                        self.send_with_timeout(&mut ws_sender, WsMessage::text(json)).await?;
                     }
 
                     // potentially create a filter_block
@@ -663,7 +663,7 @@ impl Peer {
 
                     info!("Sending {} with {} transaction(s), to: {}", r#type, transactions_len, self.addr);
                     let json = serde_json::to_string(&message).map_err(JsonError::Serialize)?;
-                    self.send_with_timeout(&mut ws_sender, WsMessage::Text(json)).await?;
+                    self.send_with_timeout(&mut ws_sender, WsMessage::text(json)).await?;
                 }
 
                 Some(new_tx) = new_tx_chan_rx.recv() => {
@@ -681,7 +681,7 @@ impl Peer {
                         transaction: new_tx.transaction,
                     });
                     let json = serde_json::to_string(&push_tx).map_err(JsonError::Serialize)?;
-                    self.send_with_timeout(&mut ws_sender, WsMessage::Text(json)).await?;
+                    self.send_with_timeout(&mut ws_sender, WsMessage::text(json)).await?;
                 }
 
                 Some(_) = on_connect_chan_rx.recv() => {
@@ -692,7 +692,7 @@ impl Peer {
                     info!("Sending get_peer_addresses to: {}", self.addr);
                     let message = Message::GetPeerAddresses;
                     let json = serde_json::to_string(&message).map_err(JsonError::Serialize)?;
-                    self.send_with_timeout(&mut ws_sender, WsMessage::Text(json)).await?;
+                    self.send_with_timeout(&mut ws_sender, WsMessage::text(json)).await?;
                 }
 
                 Some(gw) = get_work_chan.1.recv() => {
@@ -708,7 +708,7 @@ impl Peer {
                 }
 
                 _ = ticker_ping.tick() => {
-                    self.send_with_timeout(&mut ws_sender, WsMessage::Ping(vec![])).await?;
+                    self.send_with_timeout(&mut ws_sender, WsMessage::Ping(Bytes::new())).await?;
                 }
 
                 _ = ticker_peer_store_refresh.tick(), if self.outbound => {
@@ -723,7 +723,7 @@ impl Peer {
                     info!("Sending get_peer_addresses to: {}", self.addr);
                     let message = Message::GetPeerAddresses;
                     let json = serde_json::to_string(&message).map_err(JsonError::Serialize)?;
-                    self.send_with_timeout(&mut ws_sender, WsMessage::Text(json)).await?;
+                    self.send_with_timeout(&mut ws_sender, WsMessage::text(json)).await?;
                 }
 
                 _ = ticker_update_work_check.tick(), if self.work.is_some() => {
@@ -1152,7 +1152,7 @@ impl Peer {
         // send immediately if the sender is passed in
         if let Some(ws_sender) = ws_sender {
             let json = serde_json::to_string(&message).map_err(JsonError::Serialize)?;
-            self.send_with_timeout(ws_sender, WsMessage::Text(json))
+            self.send_with_timeout(ws_sender, WsMessage::text(json))
                 .await
                 .map_err(PeerError::PeerConnection)?;
             return Ok(());

@@ -52,6 +52,10 @@ async fn main() -> ExitCode {
 
 async fn run() -> Result<(), WalletBinError> {
     init_logger();
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .expect("Failed to install rustls crypto provider");
+
     let args = args().collect::<Vec<_>>();
     let program = &args[0];
 

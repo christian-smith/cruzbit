@@ -880,7 +880,7 @@ impl ConnectionHandler {
                     };
 
                     // send outgoing message to peer
-                    if let Err(err) = self.send_with_timeout(&mut ws_sender, WsMessage::Text(json)).await {
+                    if let Err(err) = self.send_with_timeout(&mut ws_sender, WsMessage::text(json)).await {
                         result_chan_tx.send(WalletResult {
                             err: Some(err.into()),
                             message: None
