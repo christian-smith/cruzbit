@@ -14,9 +14,9 @@ pub trait ErrChain {
 impl<E: ?Sized + StdError> ErrChain for E {
     fn chain(&self) -> Result<String, fmt::Error> {
         let mut buf = String::new();
-        write!(buf, "{}", self)?;
+        write!(buf, "{self}")?;
         for err in std::iter::successors(self.source(), |&error| error.source()) {
-            write!(buf, " -> {}", err)?;
+            write!(buf, " -> {err}")?;
         }
         Ok(buf)
     }

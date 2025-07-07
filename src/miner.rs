@@ -332,7 +332,7 @@ impl Miner {
                         .await
                         .map_err(MinerError::ProcessBlock)
                     {
-                        error!("{:?}", err);
+                        error!("{err:?}");
                     }
                 });
 

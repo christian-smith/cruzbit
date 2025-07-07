@@ -321,9 +321,7 @@ impl BlockHeaderHasher {
                 );
             } else {
                 log::info!(
-                    "GPU miner {} found a possible solution: {}, double-checking it...",
-                    _miner_num,
-                    nonce
+                    "GPU miner {_miner_num} found a possible solution: {nonce}, double-checking it..."
                 );
                 // rebuild the buffer with the new nonce since we don't update it
                 // per attempt when using CUDA/OpenCL.

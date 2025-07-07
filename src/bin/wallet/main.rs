@@ -39,11 +39,11 @@ async fn main() -> ExitCode {
         Ok(_) => ExitCode::SUCCESS,
         Err(err) => match err {
             WalletBinError::Args(err) => {
-                println!("{}", err);
+                println!("{err}");
                 ExitCode::SUCCESS
             }
             _ => {
-                error!("{:?}", err);
+                error!("{err:?}");
                 ExitCode::FAILURE
             }
         },
@@ -87,7 +87,7 @@ async fn run() -> Result<(), WalletBinError> {
         Some(mut peer) => {
             // add default port if one was not supplied
             if !peer.contains(':') {
-                peer = format!("{}:{}", peer, DEFAULT_CRUZBIT_PORT);
+                peer = format!("{peer}:{DEFAULT_CRUZBIT_PORT}");
             }
             // parse and resolve hostname to ip
             resolve_host(&peer)?
@@ -115,7 +115,7 @@ async fn run() -> Result<(), WalletBinError> {
     let genesis_id = genesis_block.id()?;
 
     println!("Starting up...");
-    println!("Genesis block ID: {}", genesis_id);
+    println!("Genesis block ID: {genesis_id}");
 
     if recover {
         println!("Attempting to recover wallet...");
@@ -155,13 +155,13 @@ async fn run() -> Result<(), WalletBinError> {
                     }
                 }
                 Err(err) => {
-                    eprintln!("Error: {:?}", err);
+                    eprintln!("Error: {err:?}");
                     return;
                 }
             };
 
             let mut new_txs = transaction_new_txs.lock().unwrap();
-            let show_message = new_txs.len() == 0;
+            let show_message = new_txs.is_empty();
             new_txs.push(pt.transaction);
 
             if show_message {
@@ -190,13 +190,13 @@ async fn run() -> Result<(), WalletBinError> {
                         }
                     }
                     Err(err) => {
-                        eprintln!("Error: {:?}", err);
+                        eprintln!("Error: {err:?}");
                         continue;
                     }
                 };
 
                 let mut new_confs = filter_block_new_confs.lock().unwrap();
-                let show_message = new_confs.len() == 0;
+                let show_message = new_confs.is_empty();
                 new_confs.push(TransactionWithHeight {
                     tx,
                     height: fb.header.height,
@@ -240,7 +240,7 @@ async fn run() -> Result<(), WalletBinError> {
                     }
                 }
                 Err(err) => {
-                    eprintln!("Error: {:?}", err);
+                    eprintln!("Error: {err:?}");
                 }
             }
         }
@@ -288,7 +288,7 @@ async fn handle_cmd(
             connect.await?;
             let (tx, left) = {
                 let mut new_confs = new_confs.lock().unwrap();
-                if new_confs.len() == 0 {
+                if new_confs.is_empty() {
                     (None, 0)
                 } else {
                     let tx = new_confs.remove(0);
@@ -358,13 +358,12 @@ async fn handle_cmd(
                             }) {
                                 Ok(v) => v,
                                 Err(err) => {
-                                    eprintln!("Error: {:?}", err);
+                                    eprintln!("Error: {err:?}");
                                     continue;
                                 }
                             };
                         println!(
-                            "Couldn't get private key for public key: {}; omitting from export",
-                            encoded
+                            "Couldn't get private key for public key: {encoded}; omitting from export"
                         );
                         continue;
                     }
@@ -376,13 +375,13 @@ async fn handle_cmd(
                 let mut buf = [0u8; 88];
                 let encoded_priv_key = Base64::encode(priv_key.as_ref(), &mut buf)
                     .map_err(EncodingError::Base64Encode)?;
-                let pair = format!("{},{}\n", encoded_pub_key, encoded_priv_key,);
+                let pair = format!("{encoded_pub_key},{encoded_priv_key}\n",);
 
                 if let Err(err) = file
                     .write(pair.as_bytes())
                     .map_err(|err| WalletBinError::File(FileError::Write(filename.clone(), err)))
                 {
-                    eprintln!("Error: {:?}", err);
+                    eprintln!("Error: {err:?}");
                 }
                 count += 1;
             }
@@ -434,7 +433,7 @@ async fn handle_cmd(
                     match Base64::decode(key[0], &mut buf).map_err(EncodingError::Base64Decode) {
                         Ok(v) => v,
                         Err(err) => {
-                            eprintln!("Error with public key: {}", err);
+                            eprintln!("Error with public key: {err}");
                             skipped += 1;
                             continue;
                         }
@@ -443,7 +442,7 @@ async fn handle_cmd(
                 {
                     Ok(v) => v,
                     Err(err) => {
-                        eprintln!("Error: {}", err);
+                        eprintln!("Error: {err}");
                         continue;
                     }
                 };
@@ -453,7 +452,7 @@ async fn handle_cmd(
                     match Base64::decode(key[1], &mut buf).map_err(EncodingError::Base64Decode) {
                         Ok(v) => v,
                         Err(err) => {
-                            eprintln!("Error with private key: {}", err);
+                            eprintln!("Error with private key: {err}");
                             skipped += 1;
                             continue;
                         }
@@ -462,7 +461,7 @@ async fn handle_cmd(
                 let priv_key = SecretKey::from_slice(priv_key_bytes).unwrap();
                 // add key to database
                 if let Err(err) = wallet.add_key(pub_key, priv_key) {
-                    eprintln!("Error adding key pair to database: {:?}", err);
+                    eprintln!("Error adding key pair to database: {err:?}");
                     skipped += 1;
                     continue;
                 }
@@ -534,7 +533,7 @@ async fn handle_cmd(
                     {
                         Ok(v) => v,
                         Err(err) => {
-                            eprintln!("Error: {:?}", err);
+                            eprintln!("Error: {err:?}");
                             break 'gpkt;
                         }
                     };
@@ -572,14 +571,14 @@ async fn handle_cmd(
         "send" => {
             connect.await?;
             let id = send_transaction(wallet).await?;
-            println!("Transaction {} sent", id);
+            println!("Transaction {id} sent");
         }
 
         "show" => {
             connect.await?;
             let (tx, left) = {
                 let mut new_txs = new_txs.lock().unwrap();
-                if new_txs.len() == 0 {
+                if new_txs.is_empty() {
                     (None, 0)
                 } else {
                     let tx = new_txs.remove(0);
@@ -606,8 +605,7 @@ async fn handle_cmd(
             println!();
             let (Some(tx), _block_id, Some(height)) = wallet.get_transaction(tx_id).await? else {
                 println!(
-                    "Transaction {} not found in the blockchain at this time.",
-                    tx_id
+                    "Transaction {tx_id} not found in the blockchain at this time."
                 );
                 println!("It may be waiting for confirmation.");
                 return Ok(true);
@@ -643,8 +641,7 @@ async fn handle_cmd(
                 };
             }
             println!(
-                "{} key(s) verified and {} key(s) potentially corrupt",
-                verified, corrupt
+                "{verified} key(s) verified and {corrupt} key(s) potentially corrupt"
             )
         }
 
@@ -899,7 +896,7 @@ async fn connect_wallet(
 }
 
 fn print_usage(program: &str, opts: Options) {
-    let brief = format!("Usage of {}:", program);
+    let brief = format!("Usage of {program}:");
     print!("{}", opts.usage(&brief));
 }
 
@@ -938,7 +935,7 @@ impl CmdCompletion {
 
     pub fn help(&self) {
         for (text, description) in self.items.iter() {
-            println!("{} - {}", text, description);
+            println!("{text} - {description}");
         }
     }
 }

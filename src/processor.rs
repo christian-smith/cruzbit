@@ -235,7 +235,7 @@ impl Processor {
                     ).await;
 
                     if let Err(err) = tx_to_process.result_chan.send(result).map_err(ProcessTransactionError::from) {
-                        error!("{:?}", err);
+                        error!("{err:?}");
                     }
                 }
 
@@ -261,7 +261,7 @@ impl Processor {
 
                     // send back the result
                     if let Err(err) = block_to_process.result_chan.send(result).map_err(ProcessBlockError::from) {
-                        error!("{:?}", err);
+                        error!("{err:?}");
                     }
                 }
 
@@ -381,7 +381,7 @@ impl Processor {
         tx: Transaction,
         source: SocketAddr,
     ) -> Result<(), ProcessTransactionError> {
-        info!("Processing transaction {}", id);
+        info!("Processing transaction {id}");
 
         // min fee? if not waste no more time
         if tx.fee.expect("transaction should have a fee") < MIN_FEE_CRUZBITS {
@@ -464,7 +464,7 @@ impl Processor {
                 .await
                 .map_err(ProcessTransactionError::from)
             {
-                error!("{:?}", err)
+                error!("{err:?}")
             }
         }
         Ok(())
@@ -609,13 +609,13 @@ impl Processor {
         block: Block,
         source: SocketAddr,
     ) -> Result<(), ProcessBlockError> {
-        info!("Processing block {}", id);
+        info!("Processing block {id}");
 
         // did we process this block already?
         let branch_type = self.ledger.get_branch_type(&id)?;
 
         if branch_type != BranchType::Unknown {
-            info!("Already processed block {}", id);
+            info!("Already processed block {id}");
             return Ok(());
         }
 
@@ -632,7 +632,7 @@ impl Processor {
                 self.block_store.store(&id, &block, now)?;
                 // begin the ledger
                 self.connect_block(&id, &block, &source, false).await?;
-                info!("Connected block {}", id);
+                info!("Connected block {id}");
                 return Ok(());
             }
 
@@ -789,7 +789,7 @@ impl Processor {
         let branch_type = self.ledger.get_branch_type(id)?;
 
         if branch_type != BranchType::Unknown {
-            info!("Already processed block {}", id);
+            info!("Already processed block {id}");
             return Ok(());
         }
 
@@ -898,7 +898,7 @@ impl Processor {
             // we may have disconnected the old best chain and partially
             // connected the new one before encountering a problem. re-activate it now
             if let Err(err2) = self.reconnect_tip(&tip_id, &source).await {
-                info!("Error reconnecting tip: {}, block: {}", err2, tip_id);
+                info!("Error reconnecting tip: {err2}, block: {tip_id}");
             }
 
             // return the original error
@@ -1083,7 +1083,7 @@ impl Processor {
         // is this block better than the current tip?
         if !block.header.compare(&tip_header, block_when, tip_when) {
             // flag this as a side branch block
-            info!("Block {} does not represent the tip of the best chain", id);
+            info!("Block {id} does not represent the tip of the best chain");
             return self
                 .ledger
                 .set_branch_type(id, BranchType::Side)
@@ -1206,7 +1206,7 @@ impl Processor {
                 })
                 .map_err(ProcessorError::from)
             {
-                error!("{:?}", err);
+                error!("{err:?}");
             }
         }
         Ok(())
@@ -1246,7 +1246,7 @@ impl Processor {
                 })
                 .map_err(ProcessBlockError::from)
             {
-                error!("{:?}", err);
+                error!("{err:?}");
             }
         }
         Ok(())
@@ -1554,25 +1554,19 @@ mod test {
             let reward = Processor::block_creation_reward(height);
             assert!(
                 reward <= INITIAL_COINBASE_REWARD,
-                "Reward {} at height {} greater than initial reward {}",
-                reward,
-                height,
-                INITIAL_COINBASE_REWARD,
+                "Reward {reward} at height {height} greater than initial reward {INITIAL_COINBASE_REWARD}",
             );
             assert_eq!(
                 reward,
                 previous / 2,
-                "Reward {} at height {} not equal to half previous period reward",
-                reward,
-                height,
+                "Reward {reward} at height {height} not equal to half previous period reward",
             );
             previous = reward
         }
         assert_eq!(
             Processor::block_creation_reward(max_halvings * BLOCKS_UNTIL_REWARD_HALVING),
             0,
-            "Expected 0 reward by {} halving",
-            max_halvings
+            "Expected 0 reward by {max_halvings} halving"
         );
     }
 
@@ -1587,9 +1581,7 @@ mod test {
             let max = Processor::compute_max_transactions_per_block(height);
             assert!(
                 max >= INITIAL_MAX_TRANSACTIONS_PER_BLOCK,
-                "Max {} at height {} less than initial",
-                max,
-                height
+                "Max {max} at height {height} less than initial"
             );
 
             let mut expect = previous * 2;
@@ -1598,8 +1590,7 @@ mod test {
             }
             assert_eq!(
                 max, expect,
-                "Max {} at height {} not equal to expected max {}",
-                max, height, expect
+                "Max {max} at height {height} not equal to expected max {expect}"
             );
 
             if doublings > 0 {
@@ -1612,10 +1603,7 @@ mod test {
                     let max2 = Processor::compute_max_transactions_per_block(height);
                     assert!(
                         max2 <= max,
-                        "Max {} at height {} is greater than next period's first max {}",
-                        max2,
-                        height,
-                        max,
+                        "Max {max2} at height {height} is greater than next period's first max {max}",
                     );
                     assert!(
                         max2 <= previous2,
@@ -1640,8 +1628,7 @@ mod test {
         );
         assert_eq!(
             max, MAX_TRANSACTIONS_PER_BLOCK,
-            "Expected {} at height {}, found {}",
-            MAX_TRANSACTIONS_PER_BLOCK, MAX_TRANSACTIONS_PER_BLOCK_EXCEEDED_AT_HEIGHT, max,
+            "Expected {MAX_TRANSACTIONS_PER_BLOCK} at height {MAX_TRANSACTIONS_PER_BLOCK_EXCEEDED_AT_HEIGHT}, found {max}",
         );
 
         let max = Processor::compute_max_transactions_per_block(

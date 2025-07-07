@@ -158,19 +158,19 @@ impl PeerManager {
                 .store(peer)
                 .map_err(|err| PeerManagerError::SavePeer(peer, err))
             {
-                error!("{:?}", err);
+                error!("{err:?}");
             };
         } else {
             // query dns seeds for peers
             match query_for_peers().await {
                 Ok(addresses) => {
                     for addr in addresses {
-                        info!("Got peer address from DNS: {}", addr);
+                        info!("Got peer address from DNS: {addr}");
                         self.addr_chan.0.send(addr).await?;
                     }
                 }
                 Err(err) => {
-                    error!("{:?}", err);
+                    error!("{err:?}");
                 }
             };
 
@@ -197,7 +197,7 @@ impl PeerManager {
                         *irc_shutdown = Some(Shutdown::new(handle, shutdown_chan_tx));
                     }
                     Err(err) => {
-                        error!("{:?}", err);
+                        error!("{err:?}");
                     }
                 };
             }
@@ -205,12 +205,12 @@ impl PeerManager {
 
         // handle listening for inbound peers
         if let Err(err) = self.listen_for_peers().await {
-            error!("{:?}", err);
+            error!("{err:?}");
         }
 
         // try connecting to some saved peers
         if let Err(err) = self.connect_to_peers().await {
-            error!("{:?}", err);
+            error!("{err:?}");
         }
 
         // try connecting out to peers every 5 minutes
@@ -228,7 +228,7 @@ impl PeerManager {
                     let addr = match self.validate_peer_address(addr_str).map_err(PeerManagerError::PeerValidation) {
                         Ok(v) => v,
                         Err(err) => {
-                            error!("{:?}", err);
+                            error!("{err:?}");
                             continue
                         }
                     };
@@ -246,16 +246,16 @@ impl PeerManager {
                                 // we already knew about this peer address
                                 continue
                             }
-                            info!("Discovered new peer: {}", addr);
+                            info!("Discovered new peer: {addr}");
 
                             // try connecting to some saved peers
                             if let Err(err) = self.connect_to_peers().await {
-                                error!("{:?}", err);
+                                error!("{err:?}");
                                 continue
                             }
                         }
                         Err(err) => {
-                            error!("{:?}", err);
+                            error!("{err:?}");
                             continue
                         }
                     }
@@ -264,11 +264,11 @@ impl PeerManager {
                 _ = ticker.tick() => {
                     let out_count = self.outbound_peer_count();
                     let in_count = self.inbound_peer_count();
-                    info!("Have {} outbound connections and {} inbound connections", out_count, in_count);
+                    info!("Have {out_count} outbound connections and {in_count} inbound connections");
 
                     // handle listening for inbound peers
                     if let Err(err) = self.listen_for_peers().await {
-                        error!("{:?}", err);
+                        error!("{err:?}");
                     }
 
                     if self.dns_seed && rand::rng().random_range(0..2) == 1 {
@@ -278,7 +278,7 @@ impl PeerManager {
 
                     // periodically try connecting to some saved peers
                     if let Err(err) = self.connect_to_peers().await {
-                        error!("{:?}", err);
+                        error!("{err:?}");
                     }
                 }
 
@@ -348,9 +348,9 @@ impl PeerManager {
             }
 
             // try reconnecting to the explicit peer
-            info!("Attempting to connect to: {}", peer);
+            info!("Attempting to connect to: {peer}");
             self.connect(&peer).await?;
-            info!("Connected to peer: {}", peer);
+            info!("Connected to peer: {peer}");
             return Ok(());
         }
 
@@ -377,8 +377,7 @@ impl PeerManager {
         let mut tried = HashMap::new();
 
         info!(
-            "Have {} outbound connections, want {}. Trying some peer addresses now",
-            count, want
+            "Have {count} outbound connections, want {want}. Trying some peer addresses now"
         );
 
         // try to satisfy desired outbound peer count
@@ -390,13 +389,12 @@ impl PeerManager {
                 return Ok(());
             }
             for addr in addrs {
-                if tried.get(&addr).is_some() {
+                if tried.contains_key(&addr) {
                     // we already tried this peer address.
                     // this shouldn't really be necessary if peer storage is respecting
                     // proper retry intervals but it doesn't hurt to be safe
                     info!(
-                        "Already tried to connect to {} this time, will try again later",
-                        addr
+                        "Already tried to connect to {addr} this time, will try again later"
                     );
                     return Ok(());
                 }
@@ -410,18 +408,18 @@ impl PeerManager {
                         .delete(addr)
                         .map_err(|err| PeerManagerError::RemovePeer(addr, err))
                     {
-                        error!("{:?}", err);
+                        error!("{err:?}");
                     }
                     continue;
                 }
 
-                info!("Attempting to connect to: {}", addr);
+                info!("Attempting to connect to: {addr}");
                 match self.connect(&addr).await {
                     Ok(_) => {
                         info!("Connected to peer: {}", &addr);
                     }
                     Err(err) => {
-                        error!("{:?}", err);
+                        error!("{err:?}");
                     }
                 }
             }
@@ -430,8 +428,7 @@ impl PeerManager {
         }
 
         info!(
-            "Have {} outbound connections. Done trying new peer addresses",
-            count
+            "Have {count} outbound connections. Done trying new peer addresses"
         );
 
         Ok(())
@@ -505,7 +502,7 @@ impl PeerManager {
 
         self.accepting.store(true, Ordering::Relaxed);
         if let Err(err) = self.accept_connections() {
-            error!("{:?}", err);
+            error!("{err:?}");
         }
 
         // give us some time to generate a certificate and start listening
@@ -669,7 +666,7 @@ impl PeerManager {
                 .and_then(|addr| out_peers.remove_entry(&addr))
         };
         if let Some((addr, shutdown)) = out_peer {
-            info!("Dropping random peer: {}", addr);
+            info!("Dropping random peer: {addr}");
             shutdown.send().await;
         }
     }
@@ -796,7 +793,7 @@ impl HttpServer {
         {
             Ok(v) => v,
             Err(err) => {
-                error!("{:?}", err);
+                error!("{err:?}");
                 return Ok(());
             }
         };
@@ -807,7 +804,7 @@ impl HttpServer {
 
                     if let Ok(tls_stream) = TlsAcceptor::from(server_config).accept(stream).await {
                         if let Err(err) = self.handle_connection(tls_stream, remote_addr).await {
-                            error!("{:?}", err);
+                            error!("{err:?}");
                             continue;
                         }
                     }
@@ -842,7 +839,7 @@ impl HttpServer {
                 .get(&remote_addr.ip().to_string())
                 .is_some()
             {
-                info!("Rejecting connection from banned host: {}", remote_addr);
+                info!("Rejecting connection from banned host: {remote_addr}");
                 *response.status_mut() = StatusCode::FORBIDDEN;
                 return Ok(response);
             }
@@ -876,13 +873,13 @@ impl HttpServer {
                             }
                             Err(err) => {
                                 let err = HttpServerError::HeaderNonceInvalid(err);
-                                error!("{:?}", err);
+                                error!("{err:?}");
                             }
                         }
                     }
                     Err(err) => {
                         let err = HttpServerError::HeaderNonceInvalid(err);
-                        error!("{:?}", err);
+                        error!("{err:?}");
                     }
                 }
             };
@@ -901,14 +898,14 @@ impl HttpServer {
                         {
                             Ok(header_addr) => Some(header_addr),
                             Err(err) => {
-                                error!("{:?}", err);
+                                error!("{err:?}");
                                 // don't proceed to save it
                                 None
                             }
                         }
                     }
                     Err(err) => {
-                        error!("{:?}", err);
+                        error!("{err:?}");
                         None
                     }
                 },
@@ -918,7 +915,7 @@ impl HttpServer {
             if let Some(addr) = header_addr {
                 // see if we're already connected outbound to them
                 if self.peer_manager.exists_in_outbound_set(&addr) {
-                    info!("Already connected to {}, dropping inbound connection", addr);
+                    info!("Already connected to {addr}, dropping inbound connection");
                     // write back error reply
                     *response.status_mut() = StatusCode::TOO_MANY_REQUESTS;
                     return Ok(response);
@@ -1037,7 +1034,7 @@ pub async fn determine_external_ip() -> Option<IpAddr> {
     ip_services.shuffle(&mut rand::rng());
 
     async fn try_connect(host: &str) -> Result<Option<IpAddr>, ExternalIpError> {
-        let addr = resolve_host(&format!("{}:443", host))?;
+        let addr = resolve_host(&format!("{host}:443"))?;
         let stream = timeout(Duration::from_secs(5), TcpStream::connect(&addr))
             .await
             .map_err(ExternalIpError::Timeout)?
@@ -1050,8 +1047,7 @@ pub async fn determine_external_ip() -> Option<IpAddr> {
             .await
             .map_err(|err| ExternalIpError::Socket(SocketError::TlsConnect(addr, err)))?;
         let content = format!(
-            "GET / HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n\r\n",
-            host
+            "GET / HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n"
         );
         tls_stream
             .write_all(&content.into_bytes())
@@ -1067,12 +1063,12 @@ pub async fn determine_external_ip() -> Option<IpAddr> {
         let line = body
             .split('\n')
             .filter(|line| !line.trim().is_empty())
-            .last()
+            .next_back()
             .map(str::to_string);
         match line {
             Some(ip_string) => {
                 let addr = IpAddr::from_str(ip_string.as_str()).map_err(ParsingError::IpAddress)?;
-                info!("Found external IP: {}", addr);
+                info!("Found external IP: {addr}");
                 Ok(Some(addr))
             }
             None => Ok(None),
@@ -1090,7 +1086,7 @@ pub async fn determine_external_ip() -> Option<IpAddr> {
                 }
             }
             Err(err) => {
-                error!("{:?}", err);
+                error!("{err:?}");
             }
         }
     }

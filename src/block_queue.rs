@@ -88,7 +88,7 @@ impl BlockQueue {
     /// Returns the ID of the block at the front of the queue.
     pub fn peek(&self) -> Option<BlockID> {
         let block_queue = self.block_queue.read().unwrap();
-        if block_queue.len() == 0 {
+        if block_queue.is_empty() {
             None
         } else {
             block_queue.front().cloned()

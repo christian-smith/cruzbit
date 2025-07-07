@@ -77,7 +77,7 @@ impl IRC {
                         Some(Ok(v)) => v,
                         Some(Err(err)) => {
                             let err = IrcError::from(err);
-                            error!("{:?}", err);
+                            error!("{err:?}");
                             continue;
                         },
                         None => {
@@ -133,19 +133,19 @@ impl IRC {
             {
                 Ok(port) => {
                     if port != 0 {
-                        let addr_str = format!("{}:{}", hostname, port);
+                        let addr_str = format!("{hostname}:{port}");
                         if let Err(err) = self
                             .addr_chan_tx
                             .send(addr_str)
                             .await
                             .map_err(IrcError::from)
                         {
-                            error!("{:?}", err);
+                            error!("{err:?}");
                         }
                     }
                 }
                 Err(err) => {
-                    error!("{:?}", err);
+                    error!("{err:?}");
                 }
             }
         }

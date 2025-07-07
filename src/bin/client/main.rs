@@ -48,11 +48,11 @@ async fn main() -> ExitCode {
         Ok(_) => ExitCode::SUCCESS,
         Err(err) => match err {
             ClientError::Args(err) => {
-                println!("{}", err);
+                println!("{err}");
                 ExitCode::SUCCESS
             }
             _ => {
-                error!("{:?}", err);
+                error!("{err:?}");
                 ExitCode::FAILURE
             }
         },
@@ -171,7 +171,7 @@ async fn run() -> Result<(), ClientError> {
         Some(mut peer) => {
             // add default port if one was not supplied
             if !peer.contains(':') {
-                peer = format!("{}:{}", peer, DEFAULT_CRUZBIT_PORT);
+                peer = format!("{peer}:{DEFAULT_CRUZBIT_PORT}");
             }
             // parse and resolve hostname to ip
             Some(resolve_host(&peer)?)
@@ -209,7 +209,7 @@ async fn run() -> Result<(), ClientError> {
     let ban_map = BAN_MAP.get_or_init(|| {
         if let Some(ban_list) = ban_list {
             load_ban_list(ban_list).unwrap_or_else(|err| {
-                error!("{:?}", err);
+                error!("{err:?}");
                 exit(1);
             })
         } else {
@@ -227,7 +227,7 @@ async fn run() -> Result<(), ClientError> {
     let pub_keys = PUB_KEYS.get_or_init(|| {
         if num_miners > 0 {
             load_public_keys(pub_key, key_file).unwrap_or_else(|err| {
-                error!("{:?}", err);
+                error!("{err:?}");
                 exit(1);
             })
         } else {
@@ -247,16 +247,15 @@ async fn run() -> Result<(), ClientError> {
             };
             if device_count != num_miners {
                 return Err(ClientError::Args(format!(
-                    "{} enabled but -numminers is {} and supported devices is {}",
-                    gpu, num_miners, device_count,
+                    "{gpu} enabled but -numminers is {num_miners} and supported devices is {device_count}"
                 )));
             }
-            info!("{} initialized", gpu);
+            info!("{gpu} initialized");
         }
     }
 
     info!("Starting up...");
-    info!("Genesis block ID: {}", genesis_id);
+    info!("Genesis block ID: {genesis_id}");
 
     // instantiate the block storage
     let block_store = BlockStorageDisk::new(
@@ -328,12 +327,12 @@ async fn run() -> Result<(), ClientError> {
     let mut my_external_ip_upnp = None;
 
     if upnp && !no_accept {
-        info!("Enabling forwarding for port {}...", port);
+        info!("Enabling forwarding for port {port}...");
         match igd::search_gateway(Default::default()) {
-            Err(ref err) => info!("Failed to enable forwarding: {}", err),
+            Err(ref err) => info!("Failed to enable forwarding: {err}"),
             Ok(gateway) => match gateway.get_external_ip() {
                 Err(ref err) => {
-                    info!("Failed to enable port forwarding: {}", err);
+                    info!("Failed to enable port forwarding: {err}");
                 }
                 Ok(ext_addr) => {
                     my_external_ip_upnp = Some(ext_addr);
@@ -348,14 +347,14 @@ async fn run() -> Result<(), ClientError> {
         // if upnp enabled make sure the address returned matches the outside view
         my_external_ip
             .as_ref()
-            .map_or(false, |ip| my_external_ip_upnp == *ip)
+            .is_some_and(|ip| my_external_ip_upnp == *ip)
     } else {
         // if no upnp see if any local routable IP matches the outside view
-        my_external_ip.as_ref().map_or(false, |ip| {
+        my_external_ip.as_ref().is_some_and(|ip| {
             have_local_ip_match(ip)
                 .map_err(ClientError::from)
                 .unwrap_or_else(|err| {
-                    error!("{:?}", err);
+                    error!("{err:?}");
                     false
                 })
         })
@@ -451,7 +450,7 @@ fn load_ban_list(ban_list_file: PathBuf) -> Result<HashMap<String, bool>, Client
 }
 
 fn print_usage(program: &str, opts: Options) {
-    let brief = format!("Usage of {}:", program);
+    let brief = format!("Usage of {program}:");
     print!("{}", opts.usage(&brief));
 }
 

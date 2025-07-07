@@ -186,7 +186,7 @@ impl Peer {
         my_addr: Option<SocketAddr>,
     ) -> Result<(), PeerConnectionError> {
         let url = format!("wss://{}/{}", self.addr, &self.genesis_id);
-        info!("Connecting to {}", url);
+        info!("Connecting to {url}");
 
         let mut request = url.into_client_request()?;
         request
@@ -328,7 +328,7 @@ impl Peer {
                     .on_disconnect(self.addr)
                     .map_err(PeerError::PeerStorage)
                 {
-                    error!("{:?}", err);
+                    error!("{err:?}");
                 }
             }));
         }
@@ -764,7 +764,7 @@ impl Peer {
         }
 
         // is it on the ignore list?
-        if self.ignore_blocks.get(&id).is_some() {
+        if self.ignore_blocks.contains_key(&id) {
             info!("Ignoring block {}, from: {}", id, self.addr);
             return Ok(());
         }
@@ -781,7 +781,7 @@ impl Peer {
         // have we processed it?
         let branch_type = self.ledger.get_branch_type(&id)?;
         if branch_type != BranchType::Unknown {
-            info!("Already processed block {}", id);
+            info!("Already processed block {id}");
             if length > 1 && index + 1 == length {
                 // we might be on a deep side chain. this will get us the next 500 blocks
                 return self
@@ -901,7 +901,7 @@ impl Peer {
                 let chain_tip = match self.ledger.get_chain_tip().map_err(PeerError::Ledger) {
                     Ok(v) => v,
                     Err(err) => {
-                        error!("{:?}", err);
+                        error!("{err:?}");
                         return Ok(());
                     }
                 };
@@ -1048,8 +1048,7 @@ impl Peer {
                     // another peer is downloading it right now.
                     // wait to see if they succeed before trying to download any others
                     info!(
-                        "Block {} is being downloaded already from another peer",
-                        block_to_download
+                        "Block {block_to_download} is being downloaded already from another peer"
                     );
                     break;
                 }
@@ -1104,7 +1103,7 @@ impl Peer {
         let mut height = match start_id {
             Some(id) => {
                 let Some((header, _when)) = self.block_store.get_block_header(&id)? else {
-                    info!("No header for block {}", id);
+                    info!("No header for block {id}");
                     return Ok(());
                 };
                 header.height
@@ -1137,7 +1136,7 @@ impl Peer {
             {
                 Ok(v) => v,
                 Err(err) => {
-                    error!("{:?}", err);
+                    error!("{err:?}");
                     return Ok(());
                 }
             };
@@ -1443,14 +1442,14 @@ impl Peer {
                 Ok((Some(tx), header)) => (tx, header),
                 Ok((None, _header)) => {
                     let err = PeerError::PublicKeyTransactionNotFound(block_id, indices[i]);
-                    error!("{:?}", err);
+                    error!("{err:?}");
                     continue;
                 }
                 Err(err) => {
                     // odd case. just log it and continue
                     let err =
                         PeerError::PublicKeyTransactionBlockStorage(block_id, indices[i], err);
-                    error!("{:?}", err);
+                    error!("{err:?}");
                     continue;
                 }
             };
@@ -1624,7 +1623,7 @@ impl Peer {
                 .process_candidate_transaction(&id, &tx, &self.addr)
                 .await
             {
-                err_str = Some(format!("{:?}", err));
+                err_str = Some(format!("{err:?}"));
             }
         };
 
@@ -2032,7 +2031,7 @@ impl Peer {
     /// Update the read limit if necessary
     fn update_read_limit(&mut self) {
         let (ok, height) = PeerManager::is_initial_block_download(&self.ledger, &self.block_store)
-            .unwrap_or_else(|err| panic!("{:?}", err));
+            .unwrap_or_else(|err| panic!("{err:?}"));
 
         if ok {
             // TODO: do something smarter about this

@@ -520,7 +520,7 @@ mod test {
         let block_ids = vec![block_id];
         let message = FindCommonAncestorMessage { block_ids };
         let serialized = serde_json::to_string(&message).unwrap();
-        let json = format!(r#"{{"block_ids":["{}"]}}"#, block_id);
+        let json = format!(r#"{{"block_ids":["{block_id}"]}}"#);
         assert_eq!(serialized, json);
     }
 
@@ -528,7 +528,7 @@ mod test {
     fn test_deserialize_inv_block_message() {
         let block = make_test_block(1);
         let block_id = block.id().unwrap();
-        let block_ids = format!(r#"{{"block_ids":["{}"]}}"#, block_id);
+        let block_ids = format!(r#"{{"block_ids":["{block_id}"]}}"#);
         let inv = serde_json::from_str::<InvBlockMessage>(&block_ids).unwrap();
         assert_eq!(inv.block_ids.len(), 1);
         assert_eq!(block_id, inv.block_ids[0]);
@@ -540,8 +540,7 @@ mod test {
         let block_id = block.id().unwrap();
         let block_json = serde_json::to_string(&block).unwrap();
         let block_message_json = format!(
-            r#"{{"block_id": "{}", "block": {} }}"#,
-            block_id, block_json
+            r#"{{"block_id": "{block_id}", "block": {block_json} }}"#
         );
         let block_message = serde_json::from_str::<BlockMessage>(&block_message_json).unwrap();
         assert_eq!(block_id, block_message.block_id);

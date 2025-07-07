@@ -241,7 +241,7 @@ impl BlockID {
 
     /// Returns BlockID as a hex string
     pub fn as_hex(&self) -> String {
-        format!("{}", self)
+        format!("{self}")
     }
 
     /// Converts from BlockID to BigInt.
@@ -272,7 +272,7 @@ impl DerefMut for BlockID {
 
 impl Debug for BlockID {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self)
+        write!(f, "{self}")
     }
 }
 

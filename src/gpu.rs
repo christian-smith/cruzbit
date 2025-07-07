@@ -34,7 +34,7 @@ pub fn gpu_miner_init() -> usize {
 /// Is called when the underlying header changes.
 pub fn gpu_miner_update(
     miner_num: usize,
-    header_bytes: &Vec<u8>,
+    header_bytes: &[u8],
     header_bytes_len: usize,
     start_nonce_offset: usize,
     end_nonce_offset: usize,

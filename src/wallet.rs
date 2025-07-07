@@ -160,7 +160,7 @@ impl Wallet {
             // update the filter
             if let Err(err) = inner.filter.add(&pub_key[..]) {
                 let err = WalletError::FilterInsertFailed(err);
-                error!("{:?}", err);
+                error!("{err:?}");
             }
         }
 
@@ -591,7 +591,7 @@ impl Wallet {
         for pub_key in pub_keys {
             if let Err(err) = inner.filter.add(&pub_key[..]) {
                 let err = WalletError::FilterInsertFailed(err);
-                error!("{:?}", err);
+                error!("{err:?}");
             }
         }
 

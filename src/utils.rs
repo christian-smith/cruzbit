@@ -29,7 +29,7 @@ pub fn resolve_host(host: &str) -> Result<SocketAddr, ParsingError> {
         Some(addr) => Ok(addr),
         None => Err(ParsingError::ToSocketAddr(std::io::Error::new(
             std::io::ErrorKind::AddrNotAvailable,
-            format!("failed to parse address: {}", host),
+            format!("failed to parse address: {host}"),
         ))),
     }
 }

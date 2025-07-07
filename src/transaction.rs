@@ -167,7 +167,7 @@ impl TransactionID {
 
     /// Returns TransactionID as a hex string
     pub fn as_hex(&self) -> String {
-        format!("{}", self)
+        format!("{self}")
     }
 }
 
@@ -401,8 +401,7 @@ mod test {
         assert_eq!(
             id.as_hex().as_str(),
             "fc04870db147eb31823ce7c68ef366a7e94c2a719398322d746ddfd0f5c98776",
-            "ID {} differs from test vector",
-            id
+            "ID {id} differs from test vector"
         );
 
         // add signature from test vector

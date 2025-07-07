@@ -41,7 +41,7 @@ impl DnsSeeder {
         my_external_ip: Option<IpAddr>,
         shutdown_chan_rx: ShutdownChanReceiver,
     ) -> Self {
-        let sock = UdpSocket::bind(format!("0.0.0.0:{}", port))
+        let sock = UdpSocket::bind(format!("0.0.0.0:{port}"))
             .await
             .expect("dns seeder couldn't bind to address");
 
@@ -72,18 +72,18 @@ impl DnsSeeder {
                             let request = match Message::from_octets(data).map_err(DnsSeederError::ShortMessage) {
                                 Ok(v) => v,
                                 Err(err) => {
-                                    error!("{:?}", err);
+                                    error!("{err:?}");
                                     continue;
                                 }
                             };
 
                            if let Err(err) = self.handle_query(request, addr).await {
-                               error!("{:?}", err);
+                               error!("{err:?}");
                                continue;
                            };
                         },
                         Err(err) => {
-                            error!("{:?}", err);
+                            error!("{err:?}");
                             continue;
                         }
                     }
@@ -202,7 +202,7 @@ pub async fn query_for_peers() -> Result<Vec<String>, DnsSeederError> {
         let seeder = match seeder {
             Ok(v) => v,
             Err(err) => {
-                error!("{:?}", err);
+                error!("{err:?}");
                 continue;
             }
         };
@@ -210,7 +210,7 @@ pub async fn query_for_peers() -> Result<Vec<String>, DnsSeederError> {
         match handle_query(&socket, seeder, &message).await {
             Ok(seeder_peers) => peers.extend(seeder_peers),
             Err(err) => {
-                error!("{:?}", err);
+                error!("{err:?}");
                 continue;
             }
         }
