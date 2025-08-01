@@ -129,7 +129,8 @@ impl TransactionQueue for TransactionQueueMemory {
         // add to front in reverse order.
         // we want formerly confirmed transactions to have the highest
         // priority for getting into the next block.
-        for (i, tx) in txs.iter().rev().enumerate() {
+        for i in (0..txs.len()).rev() {
+            let tx = &txs[i];
             let tx_id = ids[i];
 
             if tx_map.contains_key(&tx_id) {
