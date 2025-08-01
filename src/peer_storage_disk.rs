@@ -10,11 +10,17 @@ use leveldb::database::{Database, DatabaseReader};
 use leveldb::iterator::{Iterable, LevelDBIterator};
 use leveldb::options::{Options, ReadOptions, WriteOptions};
 use leveldb::snapshots::Snapshots;
+use rand::Rng;
 use serde::{Deserialize, Serialize};
 
 use crate::error::{DataError, DbError, EncodingError, ParsingError};
 use crate::peer_storage::{PeerStorage, PeerStorageError, PeerStorageNotFoundError};
 use crate::utils::now_as_duration;
+
+/// New peers get a random last_attempt between 0 and 1 << 30 seconds (about 34 years from Unix epoch).
+/// This ensures that they are tried before any previously attempted peers (which have real timestamps),
+/// and that they are tried in random order relative to each other
+const NEW_PEER_LAST_ATTEMPT_MAX: u64 = 1 << 30;
 
 const U64_LENGTH: usize = std::mem::size_of::<u64>();
 
@@ -95,10 +101,13 @@ impl PeerStorage for PeerStorageDisk {
             return Ok(false);
         };
 
+        // insert new peers at the head of the list to try next but put them in a random position
+        // relative to other new peers
+        let mut rng = rand::rng();
         let info = PeerInfo {
             first_seen: now_as_duration(),
             last_success: Duration::ZERO,
-            last_attempt: Duration::ZERO,
+            last_attempt: Duration::from_secs(rng.random_range(0..NEW_PEER_LAST_ATTEMPT_MAX)),
         };
 
         let batch = WriteBatch::new();
@@ -280,7 +289,7 @@ struct PeerInfo {
 impl PeerInfo {
     /// Should we retry this connection?
     pub fn should_retry(&self) -> bool {
-        if self.last_attempt == Duration::ZERO {
+        if self.last_attempt.as_secs() < NEW_PEER_LAST_ATTEMPT_MAX {
             // never been tried
             return true;
         }
