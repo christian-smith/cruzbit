@@ -335,7 +335,7 @@ impl Peer {
 
         // are we syncing?
         let mut last_new_block_time = Instant::now();
-        let (ibd, _height) =
+        let (mut ibd, _height) =
             PeerManager::is_initial_block_download(&self.ledger, &self.block_store)?;
 
         loop {
@@ -592,7 +592,7 @@ impl Peer {
                             // handle pongs
                             if ibd {
                                 // handle stalled blockchain syncs
-                                let (ibd, _height) = PeerManager::is_initial_block_download(&self.ledger, &self.block_store)?;
+                                (ibd, _) = PeerManager::is_initial_block_download(&self.ledger, &self.block_store)?;
                                 let elapsed = last_new_block_time.elapsed();
                                 if ibd && elapsed > SYNC_WAIT {
                                     break Err(PeerError::SyncStalled(self.addr))
