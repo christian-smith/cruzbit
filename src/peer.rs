@@ -1129,10 +1129,10 @@ impl Peer {
                 break;
             }
             ids.push(id);
-            let depth = height - step;
-            if depth == 0 {
+            if step >= height {
                 break;
             }
+            let depth = height - step;
             block_id = match self
                 .ledger
                 .get_block_id_for_height(depth)
