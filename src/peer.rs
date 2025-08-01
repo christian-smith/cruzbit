@@ -383,12 +383,16 @@ impl Peer {
                             match message {
                                 Message::Block(Some(b)) => {
                                     if let Some(block) = b.block {
-                                        if let Err(err) = self.on_block(block, ibd, &out_chan_tx).await {
-                                            error!("{:?}, from: {}", err, self.addr);
-                                            continue
-
-                                        } else {
-                                            last_new_block_time = Instant::now();
+                                        match self.on_block(block, ibd, &out_chan_tx).await {
+                                            Ok(accepted) => {
+                                                if accepted {
+                                                    last_new_block_time = Instant::now();
+                                                }
+                                            }
+                                            Err(err) => {
+                                                error!("{:?}, from: {}", err, self.addr);
+                                                continue
+                                            }
                                         }
                                     } else {
                                         break Err(PeerError::EmptyBlockReceived(self.addr))
