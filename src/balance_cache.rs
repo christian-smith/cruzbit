@@ -51,11 +51,7 @@ impl BalanceCache {
             if sender_balance > 0 && sender_balance < self.min_balance {
                 return Ok(false);
             }
-            if let Some(balance) = self.cache.get_mut(&fpk) {
-                *balance = sender_balance;
-            } else {
-                self.cache.insert(fpk, sender_balance);
-            }
+            self.cache.insert(fpk, sender_balance);
         }
 
         // credit recipient balance
@@ -84,11 +80,7 @@ impl BalanceCache {
             };
             let total_spent = tx.amount + tx.fee.expect("transaction should have a fee");
             sender_balance += total_spent;
-            if let Some(balance) = self.cache.get_mut(&fpk) {
-                *balance = sender_balance;
-            } else {
-                self.cache.insert(fpk, sender_balance);
-            }
+            self.cache.insert(fpk, sender_balance);
         }
 
         // debit recipient balance
@@ -100,10 +92,7 @@ impl BalanceCache {
         if recipient_balance < tx.amount {
             panic!("Recipient balance went negative")
         }
-        *self
-            .cache
-            .get_mut(&tpk)
-            .expect("recipient should be cached") = recipient_balance - tx.amount;
+        self.cache.insert(tpk, recipient_balance - tx.amount);
 
         Ok(())
     }
