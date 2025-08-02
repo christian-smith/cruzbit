@@ -324,7 +324,8 @@ impl PeerInfo {
         // has it been over a week since we connected to it?
         let week = Duration::from_secs(7 * 24 * 60 * 60);
 
-        self.last_success > week
+        let now = now_as_duration();
+        now - self.last_success > week
     }
 
     /// Helper to write the peer info to a batch
