@@ -1162,11 +1162,11 @@ impl Processor {
 
         // connect any new chain blocks we need to
         for id in blocks_to_connect {
-            let Some(blocks_to_connect) = self.block_store.get_block(&id)? else {
+            let Some(block_to_connect) = self.block_store.get_block(&id)? else {
                 return Err(BlockStorageNotFoundError::Block(id).into());
             };
 
-            self.connect_block(&id, &blocks_to_connect, source, true)
+            self.connect_block(&id, &block_to_connect, source, true)
                 .await?;
         }
 
