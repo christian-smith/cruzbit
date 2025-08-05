@@ -1064,10 +1064,10 @@ pub async fn determine_external_ip() -> Option<IpAddr> {
             .split('\n')
             .filter(|line| !line.trim().is_empty())
             .next_back()
-            .map(str::to_string);
+            .map(|s| s.trim().trim_end_matches('\r'));
         match line {
             Some(ip_string) => {
-                let addr = IpAddr::from_str(ip_string.as_str()).map_err(ParsingError::IpAddress)?;
+                let addr = IpAddr::from_str(ip_string).map_err(ParsingError::IpAddress)?;
                 info!("Found external IP: {addr}");
                 Ok(Some(addr))
             }
