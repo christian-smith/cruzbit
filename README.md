@@ -31,6 +31,53 @@
 * **[Reference implementation](https://github.com/cruzbit/cruzbit) is in [Go](https://golang.org/)** - Perhaps more accessible than C++. Hopefully it makes blockchain programming a bit easier to understand and attracts a wider variety of developer interest.
 * **Web-friendly peer protocol** - Peer communication is via secure [WebSockets](https://developer.mozilla.org/en-US/docs/Web/API/WebSockets_API). And the peer protocol and all primitives are structured in [JSON](https://www.json.org/). This should make working with the protocol easy for just about every modern development environment.
 
+### Features
+#### Core Design
+- Account-based ledger with public key balances (no UTXO model)
+- Ed25519 signatures for enhanced security and side-channel attack resistance
+- SHA-3/Keccak-256 hashing for all operations including proof-of-work
+- Simplified transaction format: sender, recipient, amount, explicit fee, memo, series, and nonce
+- Roughly fixed-size transactions enabling predictable block capacity
+- Optional transaction maturity and expiration fields (block height based)
+- No scripting - signatures are just signatures, not scripts
+- Transaction series increment every 1008 blocks (~1 week) enabling historical pruning
+- Dynamic block limit following BIP 101 growth (doubles every ~2 years, starting at 10,000 transactions)
+- 100-block maturity requirement for mining rewards
+- 21 million coin limit with halving schedule every 210,000 blocks (~4 years)
+
+#### Node Implementation
+- Full blockchain validation with Bitcoin-like consensus rules
+- LevelDB storage with optional LZ4 compression
+- 10-minute target block time with 2016-block difficulty adjustment
+- Bitcoin Cash's 144-block Simple Moving Average difficulty algorithm after height 28,861
+- Time Warp Attack protection in difficulty adjustment
+- Checkpoints for additional consensus validation
+- Median Time Past (MTP) validation requiring blocks newer than median of last 11 blocks
+
+#### Mining
+- CPU mining with multi-threading support (--numminers flag)
+- GPU mining via CUDA and OpenCL
+- Multi-key mining with automatic rotation from keyfile
+- Built-in hashrate monitoring and reporting
+- External miner support via getwork/submit_work protocol
+
+#### Network & Protocol
+- WebSocket protocol with JSON-structured messages
+- TLS-encrypted peer connections
+- Peer discovery via DNS seeders and IRC channels
+- UPnP automatic port forwarding for inbound connections
+- Ban list management for malicious peers
+- IPv4 and IPv6 support
+- Peer storage and management with connection limits
+
+#### Wallet
+- Ed25519 key generation and management
+- Encrypted storage using NaCl Secretbox with Argon2 key derivation
+- Interactive console interface
+- Multi-key support with batch transaction capabilities
+- Transaction status tracking and confirmation monitoring
+- Immature block rewards tracking (100-block maturity)
+
 ## Getting Started
 ### 1. Rust needs to be installed
 
