@@ -1,6 +1,6 @@
 [package]
 name = "cruzbit"
-version = "1.0.1"
+version = "1.1.0"
 authors = ["Christian Smith <christian@dhp.com>"]
 edition = "2021"
 rust-version = "1.85.0"
