@@ -405,11 +405,9 @@ fn encode_peer_info(info: &PeerInfo) -> Result<Vec<u8>, PeerStorageError> {
 }
 
 fn decode_peer_info(encoded: Vec<u8>) -> Result<PeerInfo, PeerStorageError> {
-    let (decode, _) = bincode::serde::decode_from_slice::<PeerInfo, _>(
-        &encoded,
-        bincode::config::legacy(),
-    )
-    .map_err(|e| EncodingError::BincodeDecode(Box::new(e)))?;
+    let (decode, _) =
+        bincode::serde::decode_from_slice::<PeerInfo, _>(&encoded, bincode::config::legacy())
+            .map_err(|e| EncodingError::BincodeDecode(Box::new(e)))?;
     Ok(decode)
 }
 

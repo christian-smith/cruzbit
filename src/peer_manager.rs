@@ -376,9 +376,7 @@ impl PeerManager {
 
         let mut tried = HashMap::new();
 
-        info!(
-            "Have {count} outbound connections, want {want}. Trying some peer addresses now"
-        );
+        info!("Have {count} outbound connections, want {want}. Trying some peer addresses now");
 
         // try to satisfy desired outbound peer count
         while need > 0 {
@@ -393,9 +391,7 @@ impl PeerManager {
                     // we already tried this peer address.
                     // this shouldn't really be necessary if peer storage is respecting
                     // proper retry intervals but it doesn't hurt to be safe
-                    info!(
-                        "Already tried to connect to {addr} this time, will try again later"
-                    );
+                    info!("Already tried to connect to {addr} this time, will try again later");
                     return Ok(());
                 }
                 tried.insert(addr, true);
@@ -427,9 +423,7 @@ impl PeerManager {
             need = want - count;
         }
 
-        info!(
-            "Have {count} outbound connections. Done trying new peer addresses"
-        );
+        info!("Have {count} outbound connections. Done trying new peer addresses");
 
         Ok(())
     }
@@ -1046,9 +1040,7 @@ pub async fn determine_external_ip() -> Option<IpAddr> {
             .connect(dnsname, stream)
             .await
             .map_err(|err| ExternalIpError::Socket(SocketError::TlsConnect(addr, err)))?;
-        let content = format!(
-            "GET / HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n"
-        );
+        let content = format!("GET / HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n");
         tls_stream
             .write_all(&content.into_bytes())
             .await

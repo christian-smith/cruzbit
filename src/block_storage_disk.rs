@@ -243,7 +243,7 @@ fn encode_block_header(header: &BlockHeader, when: u64) -> Result<Vec<u8>, Block
     let mut buf = Vec::new();
     buf.extend_from_slice(&when.to_be_bytes());
     let encoded = bincode::serde::encode_to_vec(header, bincode::config::legacy())
-      .map_err(|e| EncodingError::BincodeEncode(Box::new(e)))?;
+        .map_err(|e| EncodingError::BincodeEncode(Box::new(e)))?;
     buf.extend_from_slice(&encoded);
     Ok(buf)
 }

@@ -604,9 +604,7 @@ async fn handle_cmd(
             let tx_id = prompt_for_transaction_id("ID")?;
             println!();
             let (Some(tx), _block_id, Some(height)) = wallet.get_transaction(tx_id).await? else {
-                println!(
-                    "Transaction {tx_id} not found in the blockchain at this time."
-                );
+                println!("Transaction {tx_id} not found in the blockchain at this time.");
                 println!("It may be waiting for confirmation.");
                 return Ok(true);
             };
@@ -640,9 +638,7 @@ async fn handle_cmd(
                     }
                 };
             }
-            println!(
-                "{verified} key(s) verified and {corrupt} key(s) potentially corrupt"
-            )
+            println!("{verified} key(s) verified and {corrupt} key(s) potentially corrupt")
         }
 
         _ => {

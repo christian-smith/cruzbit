@@ -539,9 +539,7 @@ mod test {
         let block = make_test_block(1);
         let block_id = block.id().unwrap();
         let block_json = serde_json::to_string(&block).unwrap();
-        let block_message_json = format!(
-            r#"{{"block_id": "{block_id}", "block": {block_json} }}"#
-        );
+        let block_message_json = format!(r#"{{"block_id": "{block_id}", "block": {block_json} }}"#);
         let block_message = serde_json::from_str::<BlockMessage>(&block_message_json).unwrap();
         assert_eq!(block_id, block_message.block_id);
         assert_eq!(

@@ -6,8 +6,7 @@ use std::sync::Arc;
 
 use rand::Rng;
 use rcgen::{
-    CertificateParams, DnType, ExtendedKeyUsagePurpose, IsCa, KeyUsagePurpose,
-    SerialNumber,
+    CertificateParams, DnType, ExtendedKeyUsagePurpose, IsCa, KeyUsagePurpose, SerialNumber,
 };
 use rustls::crypto::{verify_tls12_signature, verify_tls13_signature};
 use rustls_pemfile::{certs, private_key};
