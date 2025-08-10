@@ -606,7 +606,7 @@ impl Wallet {
     }
 
     /// Helper to retrieve inner values
-    fn inner(&self) -> MutexGuard<WalletInner> {
+    fn inner(&self) -> MutexGuard<'_, WalletInner> {
         self.inner.lock().unwrap()
     }
 }
