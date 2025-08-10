@@ -34,7 +34,7 @@ use crate::error::{impl_debug_error_chain, ChannelError, DataError, DbError, Err
 use crate::peer::{PeerConnectionError, CONNECT_WAIT, WRITE_WAIT};
 use crate::protocol::{
     FilterBlockMessage, FilterLoadMessage, GetBalanceMessage, GetPublicKeyTransactionsMessage,
-    GetTransactionMessage, Message, PublicKeyTransactionsMessage, PushTransactionMessage,
+    GetTransactionMessage, Message, PublicKeyTransactionsMessage, PushTransactionMessage, PROTOCOL,
 };
 use crate::shutdown::{shutdown_channel, Shutdown, ShutdownChanReceiver, SpawnedError};
 use crate::tls::client_config;
@@ -820,7 +820,10 @@ impl ConnectionHandler {
         tls_verify: bool,
     ) -> Result<(), PeerConnectionError> {
         let url = format!("wss://{}/{}", addr, &genesis_id);
-        let request = url.into_client_request()?;
+        let mut request = url.into_client_request()?;
+        request
+            .headers_mut()
+            .insert("Sec-WebSocket-Protocol", PROTOCOL.parse().unwrap());
 
         // by default clients skip verification as most peers are using ephemeral certificates and keys.
         let client_config = client_config(tls_verify);
