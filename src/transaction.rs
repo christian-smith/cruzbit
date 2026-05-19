@@ -72,16 +72,9 @@ impl Transaction {
     pub fn id(&self) -> Result<TransactionID, TransactionError> {
         // never include the signature in the ID
         // this way we never have to think about signature malleability
-        let json = if self.signature.is_some() {
-            let mut tx = self.clone();
-            tx.signature = None;
-            serde_json::to_string(&tx).map_err(JsonError::Serialize)?
-        } else {
-            serde_json::to_string(self).map_err(JsonError::Serialize)?
-        };
-
-        let hash = TransactionID::from(&Sha3_256::digest(json.as_bytes())[..]);
-        Ok(hash)
+        let mut hasher = Sha3_256::new();
+        TransactionForId::from(self).write_go_json(HasherWrite(&mut hasher))?;
+        Ok(TransactionID::from(&hasher.finalize()[..]))
     }
 
     /// Sign this transaction.
@@ -144,6 +137,102 @@ impl Transaction {
             // potential reorg issues right around the switchover
             height.saturating_sub(100) / BLOCKS_UNTIL_NEW_SERIES + 1
         }
+    }
+}
+
+/// Borrow-only view of Transaction for ID hashing. Reproduces Go's
+/// json.Marshal(tx) byte-for-byte: the signature is never serialized,
+/// Some(0) and Some("") are dropped to match Go's int64 / string
+/// zero-value omitempty, field order matches the Go struct, and strings
+/// go through GoHtmlFormatter to match Go's default HTML escaping.
+#[serde_as]
+#[derive(Serialize)]
+struct TransactionForId<'a> {
+    time: u64,
+    nonce: u32,
+    #[serde_as(as = "Option<PublicKeySerde>")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    from: Option<PublicKey>,
+    #[serde_as(as = "PublicKeySerde")]
+    to: PublicKey,
+    amount: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    fee: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    memo: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    matures: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    expires: Option<u64>,
+    series: u64,
+}
+
+impl<'a> From<&'a Transaction> for TransactionForId<'a> {
+    fn from(tx: &'a Transaction) -> Self {
+        Self {
+            time: tx.time,
+            nonce: tx.nonce,
+            from: tx.from,
+            to: tx.to,
+            amount: tx.amount,
+            fee: tx.fee.filter(|&v| v != 0),
+            memo: tx.memo.as_deref().filter(|s| !s.is_empty()),
+            matures: tx.matures.filter(|&v| v != 0),
+            expires: tx.expires.filter(|&v| v != 0),
+            series: tx.series,
+        }
+    }
+}
+
+impl TransactionForId<'_> {
+    fn write_go_json<W: std::io::Write>(&self, writer: W) -> Result<(), TransactionError> {
+        let mut ser = serde_json::Serializer::with_formatter(writer, GoHtmlFormatter);
+        self.serialize(&mut ser).map_err(JsonError::Serialize)?;
+        Ok(())
+    }
+}
+
+/// io::Write adapter that feeds bytes straight into a Sha3_256. Lets the
+/// serializer stream JSON into the hasher with no intermediate buffer.
+struct HasherWrite<'a>(&'a mut Sha3_256);
+
+impl std::io::Write for HasherWrite<'_> {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0.update(buf);
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+/// serde_json formatter that adds Go's default JSON HTML escapes at the
+/// string-fragment layer. This keeps serde_json responsible for normal JSON
+/// escaping while matching Go's extra escaping for <, >, &, U+2028, and
+/// U+2029.
+struct GoHtmlFormatter;
+
+impl serde_json::ser::Formatter for GoHtmlFormatter {
+    fn write_string_fragment<W>(&mut self, writer: &mut W, fragment: &str) -> std::io::Result<()>
+    where
+        W: ?Sized + std::io::Write,
+    {
+        let mut start = 0;
+        for (i, c) in fragment.char_indices() {
+            let escape: &[u8] = match c {
+                '&' => b"\\u0026",
+                '<' => b"\\u003c",
+                '>' => b"\\u003e",
+                '\u{2028}' => b"\\u2028",
+                '\u{2029}' => b"\\u2029",
+                _ => continue,
+            };
+            writer.write_all(fragment[start..i].as_bytes())?;
+            writer.write_all(escape)?;
+            start = i + c.len_utf8();
+        }
+        writer.write_all(fragment[start..].as_bytes())
     }
 }
 
@@ -322,6 +411,117 @@ mod test {
     }
 
     #[test]
+    fn test_id_uses_go_omitempty_canonicalization() {
+        let key_pair = KeyPair::generate();
+        let pub_key = key_pair.pk;
+        let mut coinbase_with_empty_fields = Transaction::new(
+            None,
+            pub_key,
+            50 * CRUZBITS_PER_CRUZ,
+            None,
+            None,
+            None,
+            0,
+            None,
+        );
+        coinbase_with_empty_fields.memo = Some(String::new());
+        coinbase_with_empty_fields.matures = Some(0);
+        coinbase_with_empty_fields.expires = Some(0);
+        coinbase_with_empty_fields.fee = Some(0);
+
+        let mut coinbase_without_empty_fields = coinbase_with_empty_fields.clone();
+        coinbase_without_empty_fields.memo = None;
+        coinbase_without_empty_fields.matures = None;
+        coinbase_without_empty_fields.expires = None;
+        coinbase_without_empty_fields.fee = None;
+
+        assert_eq!(
+            coinbase_with_empty_fields.id().unwrap(),
+            coinbase_without_empty_fields.id().unwrap()
+        );
+
+        let sender = KeyPair::generate().pk;
+        let mut tx_with_zero_fields = Transaction::new(
+            Some(sender),
+            pub_key,
+            50 * CRUZBITS_PER_CRUZ,
+            Some(0),
+            Some(0),
+            Some(0),
+            0,
+            Some(String::new()),
+        );
+
+        let mut tx_without_zero_fields = tx_with_zero_fields.clone();
+        tx_without_zero_fields.fee = None;
+        tx_without_zero_fields.matures = None;
+        tx_without_zero_fields.expires = None;
+        tx_without_zero_fields.memo = None;
+
+        tx_with_zero_fields.signature = Some(key_pair.sk.sign([0; 32], None));
+        tx_without_zero_fields.signature = Some(key_pair.sk.sign([1; 32], None));
+
+        assert_eq!(
+            tx_with_zero_fields.id().unwrap(),
+            tx_without_zero_fields.id().unwrap()
+        );
+    }
+
+    #[test]
+    fn test_id_uses_go_json_html_escaping() {
+        let key_pair = KeyPair::generate();
+        let pub_key = key_pair.pk;
+        let mut tx = Transaction::new(
+            None,
+            pub_key,
+            50 * CRUZBITS_PER_CRUZ,
+            None,
+            None,
+            None,
+            0,
+            Some("<>&\u{2028}\u{2029}".to_owned()),
+        );
+        tx.time = 1;
+        tx.nonce = 2;
+        tx.series = 3;
+
+        let json = go_json_for_id(&tx).unwrap();
+        assert_eq!(
+            json,
+            r#"{"time":1,"nonce":2,"to":""#.to_owned()
+                + &pub_key.as_base64()
+                + r#"","amount":5000000000,"memo":"\u003c\u003e\u0026\u2028\u2029","series":3}"#
+        );
+    }
+
+    #[test]
+    fn test_id_preserves_json_escapes_with_go_html_escaping() {
+        let key_pair = KeyPair::generate();
+        let pub_key = key_pair.pk;
+        let mut tx = Transaction::new(
+            None,
+            pub_key,
+            50 * CRUZBITS_PER_CRUZ,
+            None,
+            None,
+            None,
+            0,
+            Some("quote:\" backslash:\\ newline:\n html:<&>\u{2028}\u{2029}".to_owned()),
+        );
+        tx.time = 1;
+        tx.nonce = 2;
+        tx.series = 3;
+
+        let json = go_json_for_id(&tx).unwrap();
+        assert_eq!(
+            json,
+            r#"{"time":1,"nonce":2,"to":""#.to_owned()
+                + &pub_key.as_base64()
+                + r#"","amount":5000000000,"memo":"quote:\" backslash:\\ newline:\n html:\u003c\u0026\u003e\u2028\u2029","series":3}"#
+        );
+    }
+
+    #[test]
     fn test_transaction() {
         // create a sender
         let key_pair = KeyPair::generate();
@@ -430,5 +630,11 @@ mod test {
         // verify the transaction (should fail)
         let ok = tx.verify().unwrap();
         assert!(!ok, "Expected verification failure");
+    }
+
+    fn go_json_for_id(tx: &Transaction) -> Result<String, TransactionError> {
+        let mut buf = Vec::with_capacity(256);
+        TransactionForId::from(tx).write_go_json(&mut buf)?;
+        Ok(String::from_utf8(buf).expect("serde_json output is valid utf-8"))
     }
 }
