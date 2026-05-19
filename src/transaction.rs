@@ -111,20 +111,18 @@ impl Transaction {
 
     /// Returns true if the transaction can be mined at the given height.
     pub fn is_mature(&self, height: u64) -> bool {
-        if self.matures.is_none() {
-            return true;
+        match self.matures {
+            None | Some(0) => true,
+            Some(matures) => matures >= height,
         }
-
-        self.matures >= Some(height)
     }
 
     /// Returns true if the transaction cannot be mined at the given height.
     pub fn is_expired(&self, height: u64) -> bool {
-        if self.expires.is_none() {
-            return false;
+        match self.expires {
+            None | Some(0) => false,
+            Some(expires) => expires < height,
         }
-
-        self.expires < Some(height)
     }
 
     /// Compute the series to use for a new transaction.
@@ -519,6 +517,40 @@ mod test {
                 + &pub_key.as_base64()
                 + r#"","amount":5000000000,"memo":"quote:\" backslash:\\ newline:\n html:\u003c\u0026\u003e\u2028\u2029","series":3}"#
         );
+    }
+
+    #[test]
+    fn test_transaction_maturity_expiration_match_go_zero_values() {
+        let key_pair = KeyPair::generate();
+        let pub_key = key_pair.pk;
+        let mut tx = Transaction::new(
+            None,
+            pub_key,
+            50 * CRUZBITS_PER_CRUZ,
+            None,
+            None,
+            None,
+            0,
+            None,
+        );
+
+        assert!(tx.is_mature(100));
+        assert!(!tx.is_expired(100));
+
+        tx.matures = Some(0);
+        tx.expires = Some(0);
+        assert!(tx.is_mature(100));
+        assert!(!tx.is_expired(100));
+
+        tx.matures = Some(101);
+        assert!(tx.is_mature(100));
+        tx.matures = Some(99);
+        assert!(!tx.is_mature(100));
+
+        tx.expires = Some(99);
+        assert!(tx.is_expired(100));
+        tx.expires = Some(100);
+        assert!(!tx.is_expired(100));
     }
 
     #[test]
