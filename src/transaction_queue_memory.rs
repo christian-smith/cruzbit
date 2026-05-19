@@ -49,7 +49,7 @@ impl TransactionQueueMemory {
                 // check maturity and expiration if included in the next block
                 !tx.is_mature(height + 1) || tx.is_expired(height + 1) ||
                 // don't re-mine any now unconfirmed spam
-                tx.fee < Some(MIN_FEE_CRUZBITS) || tx.amount < MIN_AMOUNT_CRUZBITS
+                tx.fee.unwrap_or(0) < MIN_FEE_CRUZBITS || tx.amount < MIN_AMOUNT_CRUZBITS
             {
                 // transaction has been invalidated. add it for removal and continue
                 tx_ids_to_remove.push(*tx_id);

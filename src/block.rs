@@ -88,7 +88,7 @@ impl Block {
         self.hasher.update(&id[..]);
 
         // update coinbase's fee
-        self.transactions[0].amount += tx.fee.expect("transaction should have a fee");
+        self.transactions[0].amount += tx.fee.unwrap_or(0);
 
         // update the hash list root to account for coinbase amount change
         self.header.hash_list_root =

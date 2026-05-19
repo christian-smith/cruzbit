@@ -389,7 +389,7 @@ impl Miner {
         // calculate total fees
         let mut fees = 0;
         for tx in &txs {
-            fees += tx.fee.expect("transaction should have a fee");
+            fees += tx.fee.unwrap_or(0);
         }
 
         // calculate total block reward

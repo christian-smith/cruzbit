@@ -43,7 +43,7 @@ impl BalanceCache {
                 Some(v) => v,
                 None => self.ledger.get_public_key_balance(&fpk)?,
             };
-            let total_spent = tx.amount + tx.fee.expect("transaction should have a fee");
+            let total_spent = tx.amount + tx.fee.unwrap_or(0);
             if total_spent > sender_balance {
                 return Ok(false);
             }
@@ -73,12 +73,9 @@ impl BalanceCache {
             let fpk = tx.from.expect("transaction should have a sender");
             let mut sender_balance = match self.cache.get(&fpk).copied() {
                 Some(v) => v,
-                None => {
-                    let from = tx.from.expect("transaction should have a sender");
-                    self.ledger.get_public_key_balance(&from)?
-                }
+                None => self.ledger.get_public_key_balance(&fpk)?,
             };
-            let total_spent = tx.amount + tx.fee.expect("transaction should have a fee");
+            let total_spent = tx.amount + tx.fee.unwrap_or(0);
             sender_balance += total_spent;
             self.cache.insert(fpk, sender_balance);
         }

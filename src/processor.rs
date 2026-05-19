@@ -384,7 +384,7 @@ impl Processor {
         info!("Processing transaction {id}");
 
         // min fee? if not waste no more time
-        if tx.fee.expect("transaction should have a fee") < MIN_FEE_CRUZBITS {
+        if tx.fee.unwrap_or(0) < MIN_FEE_CRUZBITS {
             return Err(ProcessTransactionError::MinimumFee(
                 id,
                 (MIN_FEE_CRUZBITS / CRUZBITS_PER_CRUZ) as f64,
@@ -488,23 +488,18 @@ impl Processor {
         }
 
         if tx.is_coinbase() {
-            // no sender in coinbase
-            if tx.from.is_some() {
-                return Err(ProcessTransactionError::CoinbaseSenderNotAllowed(*id));
-            }
-
             // no fee in coinbase
-            if tx.fee.is_some() {
+            if tx.fee.unwrap_or(0) > 0 {
                 return Err(ProcessTransactionError::CoinbaseFeeNotAllowed(*id));
             }
 
             // no maturity for coinbase
-            if tx.matures.is_some() {
+            if tx.matures.unwrap_or(0) > 0 {
                 return Err(ProcessTransactionError::CoinbaseMaturityNotAllowed(*id));
             }
 
             // no expiration for coinbase
-            if tx.expires.is_some() {
+            if tx.expires.unwrap_or(0) > 0 {
                 return Err(ProcessTransactionError::CoinbaseExpired(*id));
             }
 
@@ -522,29 +517,6 @@ impl Processor {
                 return Err(ProcessTransactionError::SenderMissing(*id));
             }
 
-            // sanity check fee
-            if let Some(fee) = tx.fee {
-                if fee > MAX_MONEY {
-                    return Err(ProcessTransactionError::FeeTooLarge(*id));
-                }
-            } else {
-                return Err(ProcessTransactionError::FeeMissing(*id));
-            }
-
-            // sanity check maturity
-            if let Some(matures) = tx.matures {
-                if matures > MAX_NUMBER {
-                    return Err(ProcessTransactionError::MaturityTooLarge(*id));
-                }
-            }
-
-            // sanity check expiration
-            if let Some(expires) = tx.expires {
-                if expires > MAX_NUMBER {
-                    return Err(ProcessTransactionError::ExpirationTooLarge(*id));
-                }
-            }
-
             // sanity check signature
             if let Some(signature) = tx.signature {
                 if signature.len() != Signature::BYTES {
@@ -560,9 +532,22 @@ impl Processor {
             return Err(ProcessTransactionError::RecipientInvalid(*id));
         }
 
-        // sanity check amount
+        // no pays to self
+        if tx.from == Some(tx.to) {
+            return Err(ProcessTransactionError::PaysToSelf(*id));
+        }
+
+        // sanity check amount and fee
+        if tx.amount == 0 {
+            return Err(ProcessTransactionError::AmountInvalid(*id));
+        }
         if tx.amount > MAX_MONEY {
             return Err(ProcessTransactionError::AmountTooLarge(*id));
+        }
+        if let Some(fee) = tx.fee {
+            if fee > MAX_MONEY {
+                return Err(ProcessTransactionError::FeeTooLarge(*id));
+            }
         }
 
         if let Some(memo) = &tx.memo {
@@ -576,7 +561,21 @@ impl Processor {
             }
         }
 
-        // sanity check series
+        // sanity check maturity, expiration and series
+        if let Some(matures) = tx.matures {
+            if matures > MAX_NUMBER {
+                return Err(ProcessTransactionError::MaturityTooLarge(*id));
+            }
+        }
+        if let Some(expires) = tx.expires {
+            if expires > MAX_NUMBER {
+                return Err(ProcessTransactionError::ExpirationTooLarge(*id));
+            }
+        }
+        if tx.series == 0 {
+            return Err(ProcessTransactionError::SeriesMissing(*id));
+        }
+
         if tx.series > MAX_NUMBER {
             return Err(ProcessTransactionError::SeriesTooLarge(*id));
         }
@@ -867,11 +866,7 @@ impl Processor {
                     };
                 }
 
-                if let Some(fee) = tx.fee {
-                    fees += fee;
-                } else {
-                    return Err(ProcessBlockTransactionsError::FeeMissing(tx_id).into());
-                }
+                fees += tx.fee.unwrap_or(0);
             }
         }
 
@@ -1421,8 +1416,6 @@ pub enum ProcessBlockTransactionsError {
     Exceeded(BlockID, usize, u32),
     #[error("transaction {0} is expired, height: {1}, expires: {2}")]
     Expired(TransactionID, u64, u64),
-    #[error("missing transaction fee, transaction: {0}")]
-    FeeMissing(TransactionID),
     #[error("transaction {0} is immature")]
     Immature(TransactionID),
     #[error("no transactions in block {0}")]
@@ -1437,6 +1430,8 @@ pub enum ProcessBlockTransactionsError {
 pub enum ProcessTransactionError {
     #[error("transaction {0} contains too large of an amount")]
     AmountTooLarge(TransactionID),
+    #[error("transaction {0} contains invalid amount")]
+    AmountInvalid(TransactionID),
     #[error("transaction {0} amount too small, minimum is {1:.6}")]
     AmountTooSmall(TransactionID, f64),
     #[error("coinbase can't expire, transaction: {0}")]
@@ -1447,8 +1442,6 @@ pub enum ProcessTransactionError {
     CoinbaseInBlockOnly(TransactionID),
     #[error("coinbase can't have a maturity, transaction: {0}")]
     CoinbaseMaturityNotAllowed(TransactionID),
-    #[error("coinbase can't have a sender, transaction: {0}")]
-    CoinbaseSenderNotAllowed(TransactionID),
     #[error("coinbase can't have a signature, transaction: {0}")]
     CoinbaseSignatureNotAllowed(TransactionID),
     #[error("transaction {0} is already confirmed")]
@@ -1459,8 +1452,6 @@ pub enum ProcessTransactionError {
     ExpirationTooLarge(TransactionID),
     #[error("transaction {0} is expired, height: {1}, expires: {2}")]
     Expired(TransactionID, u64, u64),
-    #[error("transaction fee missing, transaction: {0}")]
-    FeeMissing(TransactionID),
     #[error("transaction {0} contains too large of a fee")]
     FeeTooLarge(TransactionID),
     #[error("transaction {0} is immature")]
@@ -1477,6 +1468,8 @@ pub enum ProcessTransactionError {
     NonceTooLarge(TransactionID),
     #[error("transaction {0} would not be mature")]
     NotMature(TransactionID),
+    #[error("transaction {0} to self is invalid")]
+    PaysToSelf(TransactionID),
     #[error("no room for transaction {0}, queue is full")]
     QueueIsFull(TransactionID),
     #[error("transaction {0} missing recipient")]
@@ -1543,7 +1536,12 @@ impl_debug_error_chain!(ProcessTransactionError, "processing transaction");
 
 #[cfg(test)]
 mod test {
+    use ed25519_compact::KeyPair;
+
     use super::*;
+    use crate::block::test_utils::make_test_block;
+    use crate::constants::CRUZBITS_PER_CRUZ;
+    use crate::transaction::Transaction;
 
     #[test]
     fn test_block_creation_reward() {
@@ -1650,5 +1648,90 @@ mod test {
             MAX_TRANSACTIONS_PER_BLOCK_EXCEEDED_AT_HEIGHT - 1,
             max
         );
+    }
+
+    #[test]
+    fn test_check_transaction_matches_go_zero_value_rules() {
+        let mut block = make_test_block(1);
+        let coinbase = &mut block.transactions[0];
+        coinbase.fee = Some(0);
+        coinbase.matures = Some(0);
+        coinbase.expires = Some(0);
+        let coinbase_id = coinbase.id().unwrap();
+        Processor::check_transaction(&coinbase_id, coinbase).unwrap();
+
+        let sender = KeyPair::generate();
+        let recipient = KeyPair::generate();
+        let mut tx = Transaction::new(
+            Some(sender.pk),
+            recipient.pk,
+            CRUZBITS_PER_CRUZ,
+            None,
+            None,
+            None,
+            0,
+            None,
+        );
+        tx.sign(sender.sk).unwrap();
+        let tx_id = tx.id().unwrap();
+        Processor::check_transaction(&tx_id, &tx).unwrap();
+    }
+
+    #[test]
+    fn test_check_transaction_rejects_go_invalid_values() {
+        let sender = KeyPair::generate();
+        let recipient = KeyPair::generate();
+
+        let mut zero_amount = Transaction::new(
+            Some(sender.pk),
+            recipient.pk,
+            0,
+            Some(MIN_FEE_CRUZBITS),
+            None,
+            None,
+            0,
+            None,
+        );
+        zero_amount.sign(sender.sk.clone()).unwrap();
+        let zero_amount_id = zero_amount.id().unwrap();
+        assert!(matches!(
+            Processor::check_transaction(&zero_amount_id, &zero_amount),
+            Err(ProcessTransactionError::AmountInvalid(_))
+        ));
+
+        let mut zero_series = Transaction::new(
+            Some(sender.pk),
+            recipient.pk,
+            CRUZBITS_PER_CRUZ,
+            Some(MIN_FEE_CRUZBITS),
+            None,
+            None,
+            0,
+            None,
+        );
+        zero_series.series = 0;
+        zero_series.sign(sender.sk.clone()).unwrap();
+        let zero_series_id = zero_series.id().unwrap();
+        assert!(matches!(
+            Processor::check_transaction(&zero_series_id, &zero_series),
+            Err(ProcessTransactionError::SeriesMissing(_))
+        ));
+
+        let mut pays_to_self = Transaction::new(
+            Some(sender.pk),
+            sender.pk,
+            CRUZBITS_PER_CRUZ,
+            Some(MIN_FEE_CRUZBITS),
+            None,
+            None,
+            0,
+            None,
+        );
+        pays_to_self.sign(sender.sk).unwrap();
+        let pays_to_self_id = pays_to_self.id().unwrap();
+        assert!(matches!(
+            Processor::check_transaction(&pays_to_self_id, &pays_to_self),
+            Err(ProcessTransactionError::PaysToSelf(_))
+        ));
     }
 }
