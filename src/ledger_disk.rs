@@ -108,8 +108,15 @@ impl LedgerDisk {
                     Some(block.header.height),
                     Some(i as u32),
                 );
-                batch.delete(&key);
+                batch.delete_u8(&key);
             }
+
+            let key = compute_pub_key_transaction_index_key(
+                tx.to,
+                Some(block.header.height),
+                Some(i as u32),
+            );
+            batch.delete_u8(&key);
         }
 
         Ok(())
@@ -1072,6 +1079,100 @@ mod test {
         assert_eq!(indices, vec![0, 0]);
         assert_eq!(last_height, block.header.height);
         assert_eq!(last_index, 0);
+    }
+
+    #[test]
+    fn test_prune_indices_removes_recipient_public_key_index() {
+        let temp_dir = tempdir().unwrap();
+        let data_dir = temp_dir.path();
+
+        let block_store = BlockStorageDisk::new(
+            data_dir.join("blocks"),
+            data_dir.join("headers.db"),
+            false,
+            false,
+        )
+        .unwrap();
+
+        let sender = KeyPair::generate();
+        let recipient = KeyPair::generate();
+        let height = 7;
+
+        let coinbase = Transaction::new(
+            None,
+            sender.pk,
+            CRUZBITS_PER_CRUZ,
+            None,
+            None,
+            None,
+            height,
+            None,
+        );
+        let mut spend = Transaction::new(
+            Some(sender.pk),
+            recipient.pk,
+            1,
+            None,
+            None,
+            None,
+            height,
+            None,
+        );
+        spend.sign(sender.sk).unwrap();
+
+        let block = Block::new(
+            BlockID::new(),
+            height,
+            BlockID::new(),
+            BlockID::new(),
+            vec![coinbase, spend],
+        )
+        .unwrap();
+        let block_id = block.id().unwrap();
+        block_store.store(&block_id, &block, now_as_secs()).unwrap();
+
+        let ledger =
+            LedgerDisk::new(data_dir.join("ledger.db"), Arc::clone(&block_store), false).unwrap();
+
+        let batch = WriteBatch::new();
+        let height_key = compute_block_height_index_key(height);
+        batch.put_u8(&height_key, &block_id);
+        ledger
+            .db
+            .write(&WriteOptions { sync: true }, &batch)
+            .unwrap();
+
+        let batch = WriteBatch::new();
+        ledger.restore_indices(height, &batch).unwrap();
+        ledger
+            .db
+            .write(&WriteOptions { sync: true }, &batch)
+            .unwrap();
+
+        let (ids, indices, _, _) = ledger
+            .get_public_key_transaction_indices_range(recipient.pk, height, height, 0, 10)
+            .unwrap();
+        assert_eq!(ids, vec![block_id]);
+        assert_eq!(indices, vec![1]);
+
+        let batch = WriteBatch::new();
+        ledger.prune_indices(height, &batch).unwrap();
+        ledger
+            .db
+            .write(&WriteOptions { sync: true }, &batch)
+            .unwrap();
+
+        let (ids, indices, _, _) = ledger
+            .get_public_key_transaction_indices_range(recipient.pk, height, height, 0, 10)
+            .unwrap();
+        assert!(ids.is_empty());
+        assert!(indices.is_empty());
+
+        let (ids, indices, _, _) = ledger
+            .get_public_key_transaction_indices_range(sender.pk, height, height, 0, 10)
+            .unwrap();
+        assert!(ids.is_empty());
+        assert!(indices.is_empty());
     }
 
     #[test]

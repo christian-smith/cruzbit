@@ -17,9 +17,9 @@ use crate::transaction::{TransactionError, TransactionID};
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum BranchType {
     Main = 0,
-    Side = 2,
-    Orphan = 3,
-    Unknown = 4,
+    Side = 1,
+    Orphan = 2,
+    Unknown = 3,
 }
 
 impl TryFrom<u8> for BranchType {
@@ -28,9 +28,9 @@ impl TryFrom<u8> for BranchType {
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
             0 => Ok(BranchType::Main),
-            2 => Ok(BranchType::Side),
-            3 => Ok(BranchType::Orphan),
-            4 => Ok(BranchType::Unknown),
+            1 => Ok(BranchType::Side),
+            2 => Ok(BranchType::Orphan),
+            3 => Ok(BranchType::Unknown),
             _ => Err(LedgerError::BranchTypeInvalid(value)),
         }
     }
@@ -164,4 +164,31 @@ pub enum LedgerNotFoundError {
     TransactionAtIndex(TransactionID),
     #[error("transaction at index {0} in block {1} not found")]
     TransactionInBlock(u32, BlockID),
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_branch_type_wire_format_matches_go_iota() {
+        // Variants must round-trip through the on-disk byte the same way Go's
+        // iota constants do. If these byte values change, every existing
+        // ledger.db breaks: previously-written branch bytes will decode as
+        // the wrong variant.
+        for (variant, byte) in [
+            (BranchType::Main, 0u8),
+            (BranchType::Side, 1u8),
+            (BranchType::Orphan, 2u8),
+            (BranchType::Unknown, 3u8),
+        ] {
+            assert_eq!(variant as u8, byte);
+            assert_eq!(BranchType::try_from(byte).unwrap(), variant);
+        }
+
+        match BranchType::try_from(4) {
+            Err(LedgerError::BranchTypeInvalid(4)) => {}
+            other => panic!("expected BranchTypeInvalid(4), got {other:?}"),
+        }
+    }
 }
