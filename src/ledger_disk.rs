@@ -504,13 +504,14 @@ impl Ledger for LedgerDisk {
         let batch = WriteBatch::new();
 
         let mut balance_cache = BalanceCache::new(Arc::clone(self), 0);
-        let mut tx_ids = Vec::with_capacity(block.transactions.len());
+        let mut tx_ids = vec![TransactionID::default(); block.transactions.len()];
 
         // disconnect transactions in reverse order
-        for (i, tx) in block.transactions.iter().rev().enumerate() {
+        for i in (0..block.transactions.len()).rev() {
+            let tx = &block.transactions[i];
             let tx_id = tx.id()?;
             // save the id
-            tx_ids.push(tx_id);
+            tx_ids[i] = tx_id;
 
             // mark the transaction unprocessed now (delete its index)
             let key = compute_transaction_index_key(&tx_id);
@@ -643,22 +644,7 @@ impl Ledger for LedgerDisk {
 
     /// Returns the current balance of a given public key.
     fn get_public_key_balance(&self, pub_key: &PublicKey) -> Result<u64, LedgerError> {
-        // compute db key
-        let key = compute_pub_key_balance_key(pub_key);
-
-        // fetch balance
-        let Some(balance_bytes) = self
-            .db
-            .get_u8(&ReadOptions::new(), &key)
-            .map_err(DbError::Read)?
-        else {
-            return Err(DataError::NotFound.into());
-        };
-
-        // decode and return it
-        let balance = u64::from_be_bytes(balance_bytes[..].try_into().map_err(DataError::U64)?);
-
-        Ok(balance)
+        LedgerDisk::get_public_key_balance(self, pub_key)
     }
 
     /// Returns the index of a processed transaction.
@@ -781,7 +767,7 @@ impl Ledger for LedgerDisk {
             if *pub_key == tx.to {
                 balance += tx.amount;
             } else if pub_key == tx.from.as_ref().expect("transaction should have a sender") {
-                let fee = tx.fee.expect("transaction should have a fee");
+                let fee = tx.fee.unwrap_or(0);
                 balance = balance
                     .checked_sub(tx.amount)
                     .and_then(|new_balance| new_balance.checked_sub(fee))
@@ -953,6 +939,9 @@ mod test {
     use tempfile::tempdir;
 
     use crate::block::test_utils::make_test_block;
+    use crate::block::Block;
+    use crate::constants::CRUZBITS_PER_CRUZ;
+    use crate::transaction::Transaction;
     use crate::utils::now_as_secs;
 
     use super::*;
@@ -1083,5 +1072,89 @@ mod test {
         assert_eq!(indices, vec![0, 0]);
         assert_eq!(last_height, block.header.height);
         assert_eq!(last_index, 0);
+    }
+
+    #[test]
+    fn test_disconnect_block_returns_transaction_ids_in_block_order() {
+        let temp_dir = tempdir().unwrap();
+        let data_dir = temp_dir.path();
+
+        let block_store = BlockStorageDisk::new(
+            data_dir.join("blocks"),
+            data_dir.join("headers.db"),
+            false,
+            false,
+        )
+        .unwrap();
+
+        let sender = KeyPair::generate();
+        let recipient = KeyPair::generate();
+        let mut previous_id = BlockID::new();
+
+        let ledger =
+            LedgerDisk::new(data_dir.join("ledger.db"), Arc::clone(&block_store), false).unwrap();
+
+        for height in 0..=COINBASE_MATURITY {
+            let coinbase = Transaction::new(
+                None,
+                sender.pk,
+                CRUZBITS_PER_CRUZ,
+                None,
+                None,
+                None,
+                height,
+                None,
+            );
+            let block = Block::new(
+                previous_id,
+                height,
+                BlockID::new(),
+                BlockID::new(),
+                vec![coinbase],
+            )
+            .unwrap();
+            let block_id = block.id().unwrap();
+            block_store.store(&block_id, &block, now_as_secs()).unwrap();
+            ledger.connect_block(&block_id, &block).unwrap();
+            previous_id = block_id;
+        }
+
+        let coinbase = Transaction::new(
+            None,
+            sender.pk,
+            CRUZBITS_PER_CRUZ,
+            None,
+            None,
+            None,
+            COINBASE_MATURITY + 1,
+            None,
+        );
+        let mut spend = Transaction::new(
+            Some(sender.pk),
+            recipient.pk,
+            1,
+            None,
+            None,
+            None,
+            COINBASE_MATURITY + 1,
+            None,
+        );
+        spend.sign(sender.sk).unwrap();
+        let expected_ids = vec![coinbase.id().unwrap(), spend.id().unwrap()];
+
+        let block = Block::new(
+            previous_id,
+            COINBASE_MATURITY + 1,
+            BlockID::new(),
+            BlockID::new(),
+            vec![coinbase, spend],
+        )
+        .unwrap();
+        let block_id = block.id().unwrap();
+        block_store.store(&block_id, &block, now_as_secs()).unwrap();
+        ledger.connect_block(&block_id, &block).unwrap();
+
+        let disconnected_ids = ledger.disconnect_block(&block_id, &block).unwrap();
+        assert_eq!(disconnected_ids, expected_ids);
     }
 }
