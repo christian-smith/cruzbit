@@ -171,6 +171,7 @@ impl BlockHeaderHasher {
 
     /// Is called every time the header is updated and the caller wants its new hash value/ID.
     pub fn update(_miner_num: usize, header: &mut BlockHeader, hasher: &mut BlockHeaderHasher) {
+        let device_mining = cfg!(feature = "cuda") || cfg!(feature = "opencl");
         let mut _buffer_changed = false;
 
         if !hasher.initialized {
@@ -184,7 +185,8 @@ impl BlockHeaderHasher {
                 hasher.previous_hash_list_root = header.hash_list_root;
                 let _ = hex_encode(
                     &header.hash_list_root,
-                    &mut hasher.buffer[hasher.hash_list_root_offset..],
+                    &mut hasher.buffer[hasher.hash_list_root_offset..]
+                        [..header.hash_list_root.len() * 2],
                 );
             }
 
@@ -198,75 +200,72 @@ impl BlockHeaderHasher {
                 // write out the new value
                 let mut buf_len = hasher.time_offset;
                 let time_bytes = header.time.to_string().into_bytes();
-                hasher.buffer[buf_len..][..time_bytes.len()].copy_from_slice(&time_bytes);
-                hasher.time_len = time_bytes.len();
-                buf_len += time_bytes.len();
+                let time_len = time_bytes.len();
+                hasher.buffer[buf_len..buf_len + time_len].copy_from_slice(&time_bytes);
+                buf_len += time_len;
 
                 // did time shrink or grow in length?
-                offset = time_bytes.len() as isize - hasher.time_len as isize;
+                offset = time_len as isize - hasher.time_len as isize;
+                hasher.time_len = time_len;
 
                 if offset != 0 {
                     // shift everything below up or down
 
                     // target
-                    hasher.buffer[buf_len..][..HDR_TARGET.len()].copy_from_slice(HDR_TARGET);
+                    hasher.buffer[buf_len..buf_len + HDR_TARGET.len()].copy_from_slice(HDR_TARGET);
                     buf_len += HDR_TARGET.len();
-
                     let _ = hex_encode(
                         &header.target,
-                        &mut hasher.buffer[buf_len..][..header.target.len() * 2],
+                        &mut hasher.buffer[buf_len..buf_len + header.target.len() * 2],
                     );
                     buf_len += header.target.len() * 2;
 
                     // chain_work
-                    hasher.buffer[buf_len..][..HDR_CHAIN_WORK.len()]
+                    hasher.buffer[buf_len..buf_len + HDR_CHAIN_WORK.len()]
                         .copy_from_slice(HDR_CHAIN_WORK);
                     buf_len += HDR_CHAIN_WORK.len();
                     let _ = hex_encode(
                         &header.chain_work,
-                        &mut hasher.buffer[buf_len..][..header.chain_work.len() * 2],
+                        &mut hasher.buffer[buf_len..buf_len + header.chain_work.len() * 2],
                     );
                     buf_len += header.chain_work.len() * 2; // hex bytes written
 
                     // start of nonce
-                    hasher.buffer[buf_len..][..HDR_NONCE.len()].copy_from_slice(HDR_NONCE);
+                    hasher.buffer[buf_len..buf_len + HDR_NONCE.len()].copy_from_slice(HDR_NONCE);
                 }
             }
 
             // nonce
-            let device_mining = cfg!(feature = "cuda") || cfg!(feature = "opencl");
             if offset != 0 || (!device_mining && hasher.previous_nonce != header.nonce) {
                 _buffer_changed = true;
                 hasher.previous_nonce = header.nonce;
 
                 // write out the new value (or old value at a new location)
-                if offset.is_positive() {
-                    hasher.nonce_offset += offset as usize;
-                } else {
-                    hasher.nonce_offset -= offset.unsigned_abs()
-                }
-
-                let buf_len = hasher.nonce_offset;
+                hasher.nonce_offset = (hasher.nonce_offset as isize + offset) as usize;
+                let mut buf_len = hasher.nonce_offset;
                 let nonce_bytes = header.nonce.to_string().into_bytes();
-                hasher.buffer[buf_len..buf_len + nonce_bytes.len()].copy_from_slice(&nonce_bytes);
-
                 let nonce_len = nonce_bytes.len();
-                hasher.nonce_len = nonce_len;
+                hasher.buffer[buf_len..buf_len + nonce_len].copy_from_slice(&nonce_bytes);
+                buf_len += nonce_len;
 
                 // did nonce shrink or grow in length?
                 offset += nonce_len as isize - hasher.nonce_len as isize;
+                hasher.nonce_len = nonce_len;
 
                 if offset != 0 {
                     // shift everything below up or down
 
                     // height
-                    hasher.buffer.extend_from_slice(HDR_HEIGHT);
-                    hasher
-                        .buffer
-                        .extend_from_slice(&header.height.to_string().into_bytes());
+                    hasher.buffer[buf_len..buf_len + HDR_HEIGHT.len()].copy_from_slice(HDR_HEIGHT);
+                    buf_len += HDR_HEIGHT.len();
+                    let height_bytes = header.height.to_string().into_bytes();
+                    let height_len = height_bytes.len();
+                    hasher.buffer[buf_len..buf_len + height_len].copy_from_slice(&height_bytes);
+                    buf_len += height_len;
 
                     // start of transaction_count
-                    hasher.buffer.extend_from_slice(HDR_TRANSACTION_COUNT);
+                    hasher.buffer[buf_len..buf_len + HDR_TRANSACTION_COUNT.len()]
+                        .copy_from_slice(HDR_TRANSACTION_COUNT);
                 }
             }
 
@@ -276,33 +275,27 @@ impl BlockHeaderHasher {
                 hasher.previous_transaction_count = header.transaction_count;
 
                 // write out the new value (or old value at a new location)
-                if offset.is_positive() {
-                    hasher.transaction_count_offset += offset as usize;
-                } else {
-                    hasher.transaction_count_offset -= offset.unsigned_abs();
-                }
-
-                let buf_len = hasher.transaction_count_offset;
+                hasher.transaction_count_offset =
+                    (hasher.transaction_count_offset as isize + offset) as usize;
+                let mut buf_len = hasher.transaction_count_offset;
                 let transaction_count_bytes = header.transaction_count.to_string().into_bytes();
-                hasher.buffer[buf_len..][..transaction_count_bytes.len()]
+                let tx_count_len = transaction_count_bytes.len();
+                hasher.buffer[buf_len..buf_len + tx_count_len]
                     .copy_from_slice(&transaction_count_bytes);
+                buf_len += tx_count_len;
 
                 // did count shrink or grow in length?
-                offset += transaction_count_bytes.len() as isize - hasher.tx_count_len as isize;
-                hasher.tx_count_len = transaction_count_bytes.len();
+                offset += tx_count_len as isize - hasher.tx_count_len as isize;
+                hasher.tx_count_len = tx_count_len;
 
                 if offset != 0 {
                     // shift the footer up or down
-                    hasher.buffer[buf_len..][..HDR_END.len()].copy_from_slice(HDR_END);
+                    hasher.buffer[buf_len..buf_len + HDR_END.len()].copy_from_slice(HDR_END);
                 }
             }
 
             // it's possible (likely) we did a bunch of encoding with no net impact to the buffer length
-            if offset.is_positive() {
-                hasher.buf_len += offset as usize;
-            } else {
-                hasher.buf_len -= offset.unsigned_abs();
-            }
+            hasher.buf_len = (hasher.buf_len as isize + offset) as usize;
         }
 
         #[cfg(any(feature = "cuda", feature = "opencl"))]
@@ -346,6 +339,8 @@ impl BlockHeaderHasher {
     ) -> u64 {
         if buffer_changed {
             // update the device's copy of the buffer
+            // the device formats the current nonce itself, so nonce-width
+            // changes don't require refreshing this suffix.
             let last_offset = self.nonce_offset + self.nonce_len;
             self.hashes_per_attempt = gpu_miner_update(
                 miner_num,
@@ -397,6 +392,79 @@ mod test {
         assert!(compare_ids(&mut block), "ID mismatch 7");
     }
 
+    #[test]
+    fn test_block_header_hasher_reuses_buffer_across_length_changes() {
+        let mut block = make_test_block(10);
+        let mut hasher = BlockHeaderHasher::new();
+
+        assert!(
+            compare_ids_with_hasher(&mut block, &mut hasher),
+            "ID mismatch 1"
+        );
+
+        block.header.time = 9;
+        assert!(
+            compare_ids_with_hasher(&mut block, &mut hasher),
+            "ID mismatch 2"
+        );
+
+        block.header.time = 10;
+        assert!(
+            compare_ids_with_hasher(&mut block, &mut hasher),
+            "ID mismatch 3"
+        );
+
+        block.header.nonce = 99;
+        assert!(
+            compare_ids_with_hasher(&mut block, &mut hasher),
+            "ID mismatch 4"
+        );
+
+        block.header.nonce = 100;
+        assert!(
+            compare_ids_with_hasher(&mut block, &mut hasher),
+            "ID mismatch 5"
+        );
+
+        block.header.transaction_count = 99;
+        assert!(
+            compare_ids_with_hasher(&mut block, &mut hasher),
+            "ID mismatch 6"
+        );
+
+        block.header.transaction_count = 100;
+        assert!(
+            compare_ids_with_hasher(&mut block, &mut hasher),
+            "ID mismatch 7"
+        );
+    }
+
+    #[test]
+    fn test_device_header_bytes_ignore_cached_nonce_width() {
+        let mut block = make_test_block(10);
+        block.header.nonce = 9;
+
+        let mut hasher = BlockHeaderHasher::new();
+        hasher.init_buffer(&mut block.header);
+
+        assert_eq!(
+            device_header_bytes(&block, &hasher),
+            serde_json::to_vec(&block.header).unwrap()
+        );
+
+        block.header.nonce = 10;
+        assert_eq!(
+            device_header_bytes(&block, &hasher),
+            serde_json::to_vec(&block.header).unwrap()
+        );
+
+        block.header.nonce = 100;
+        assert_eq!(
+            device_header_bytes(&block, &hasher),
+            serde_json::to_vec(&block.header).unwrap()
+        );
+    }
+
     fn compare_ids(block: &mut Block) -> bool {
         // compute header ID
         let id = block.id().unwrap();
@@ -406,5 +474,25 @@ mod test {
         block.header.id_fast(0, &mut hasher);
         let id2 = BlockID::from(hasher.result);
         id == id2
+    }
+
+    fn compare_ids_with_hasher(block: &mut Block, hasher: &mut BlockHeaderHasher) -> bool {
+        let id = block.id().unwrap();
+        block.header.id_fast(0, hasher);
+        let id2 = BlockID::from(hasher.result.clone());
+        id == id2
+    }
+
+    fn device_header_bytes(block: &Block, hasher: &BlockHeaderHasher) -> Vec<u8> {
+        let nonce_bytes = block.header.nonce.to_string().into_bytes();
+        let last_offset = hasher.nonce_offset + hasher.nonce_len;
+
+        let mut bytes = Vec::with_capacity(
+            hasher.nonce_offset + nonce_bytes.len() + hasher.buf_len - last_offset,
+        );
+        bytes.extend_from_slice(&hasher.buffer[..hasher.nonce_offset]);
+        bytes.extend_from_slice(&nonce_bytes);
+        bytes.extend_from_slice(&hasher.buffer[last_offset..hasher.buf_len]);
+        bytes
     }
 }
