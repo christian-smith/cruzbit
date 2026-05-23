@@ -366,6 +366,7 @@ dependencies = [
  "ibig",
  "igd",
  "irc",
+ "itoa",
  "log",
  "lz4",
  "network-interface",

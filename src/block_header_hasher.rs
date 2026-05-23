@@ -108,10 +108,11 @@ impl BlockHeaderHasher {
         self.buffer[buf_len..][..HDR_TIME.len()].copy_from_slice(HDR_TIME);
         buf_len += HDR_TIME.len();
         self.time_offset = buf_len;
-        let time_bytes = header.time.to_string().into_bytes();
-        self.buffer[buf_len..buf_len + time_bytes.len()].copy_from_slice(&time_bytes);
-        self.time_len = time_bytes.len();
-        buf_len += time_bytes.len();
+        let mut int_buf = itoa::Buffer::new();
+        let time_str = int_buf.format(header.time);
+        self.buffer[buf_len..buf_len + time_str.len()].copy_from_slice(time_str.as_bytes());
+        self.time_len = time_str.len();
+        buf_len += time_str.len();
 
         // target
         self.buffer[buf_len..][..HDR_TARGET.len()].copy_from_slice(HDR_TARGET);
@@ -137,17 +138,17 @@ impl BlockHeaderHasher {
         self.buffer[buf_len..][..HDR_NONCE.len()].copy_from_slice(HDR_NONCE);
         buf_len += HDR_NONCE.len();
         self.nonce_offset = buf_len;
-        let nonce_bytes = header.nonce.to_string().into_bytes();
-        self.buffer[buf_len..][..nonce_bytes.len()].copy_from_slice(&nonce_bytes);
-        self.nonce_len = nonce_bytes.len();
-        buf_len += nonce_bytes.len();
+        let nonce_str = int_buf.format(header.nonce);
+        self.buffer[buf_len..][..nonce_str.len()].copy_from_slice(nonce_str.as_bytes());
+        self.nonce_len = nonce_str.len();
+        buf_len += nonce_str.len();
 
         // height
         self.buffer[buf_len..][..HDR_HEIGHT.len()].copy_from_slice(HDR_HEIGHT);
         buf_len += HDR_HEIGHT.len();
-        let height_bytes = header.height.to_string().into_bytes();
-        self.buffer[buf_len..][..height_bytes.len()].copy_from_slice(&height_bytes);
-        buf_len += height_bytes.len();
+        let height_str = int_buf.format(header.height);
+        self.buffer[buf_len..][..height_str.len()].copy_from_slice(height_str.as_bytes());
+        buf_len += height_str.len();
 
         // transaction_count
         self.previous_transaction_count = header.transaction_count;
@@ -155,11 +156,11 @@ impl BlockHeaderHasher {
             .copy_from_slice(HDR_TRANSACTION_COUNT);
         buf_len += HDR_TRANSACTION_COUNT.len();
         self.transaction_count_offset = buf_len;
-        let transaction_count_bytes = header.transaction_count.to_string().into_bytes();
-        self.buffer[buf_len..][..transaction_count_bytes.len()]
-            .copy_from_slice(&transaction_count_bytes);
-        self.tx_count_len = transaction_count_bytes.len();
-        buf_len += transaction_count_bytes.len();
+        let transaction_count_str = int_buf.format(header.transaction_count);
+        self.buffer[buf_len..][..transaction_count_str.len()]
+            .copy_from_slice(transaction_count_str.as_bytes());
+        self.tx_count_len = transaction_count_str.len();
+        buf_len += transaction_count_str.len();
 
         // end
         self.buffer[buf_len..][..HDR_END.len()].copy_from_slice(HDR_END);
@@ -191,6 +192,7 @@ impl BlockHeaderHasher {
             }
 
             let mut offset = 0;
+            let mut int_buf = itoa::Buffer::new();
 
             // time
             if hasher.previous_time != header.time {
@@ -199,9 +201,9 @@ impl BlockHeaderHasher {
 
                 // write out the new value
                 let mut buf_len = hasher.time_offset;
-                let time_bytes = header.time.to_string().into_bytes();
-                let time_len = time_bytes.len();
-                hasher.buffer[buf_len..buf_len + time_len].copy_from_slice(&time_bytes);
+                let time_str = int_buf.format(header.time);
+                let time_len = time_str.len();
+                hasher.buffer[buf_len..buf_len + time_len].copy_from_slice(time_str.as_bytes());
                 buf_len += time_len;
 
                 // did time shrink or grow in length?
@@ -243,9 +245,9 @@ impl BlockHeaderHasher {
                 // write out the new value (or old value at a new location)
                 hasher.nonce_offset = (hasher.nonce_offset as isize + offset) as usize;
                 let mut buf_len = hasher.nonce_offset;
-                let nonce_bytes = header.nonce.to_string().into_bytes();
-                let nonce_len = nonce_bytes.len();
-                hasher.buffer[buf_len..buf_len + nonce_len].copy_from_slice(&nonce_bytes);
+                let nonce_str = int_buf.format(header.nonce);
+                let nonce_len = nonce_str.len();
+                hasher.buffer[buf_len..buf_len + nonce_len].copy_from_slice(nonce_str.as_bytes());
                 buf_len += nonce_len;
 
                 // did nonce shrink or grow in length?
@@ -258,9 +260,10 @@ impl BlockHeaderHasher {
                     // height
                     hasher.buffer[buf_len..buf_len + HDR_HEIGHT.len()].copy_from_slice(HDR_HEIGHT);
                     buf_len += HDR_HEIGHT.len();
-                    let height_bytes = header.height.to_string().into_bytes();
-                    let height_len = height_bytes.len();
-                    hasher.buffer[buf_len..buf_len + height_len].copy_from_slice(&height_bytes);
+                    let height_str = int_buf.format(header.height);
+                    let height_len = height_str.len();
+                    hasher.buffer[buf_len..buf_len + height_len]
+                        .copy_from_slice(height_str.as_bytes());
                     buf_len += height_len;
 
                     // start of transaction_count
@@ -278,10 +281,10 @@ impl BlockHeaderHasher {
                 hasher.transaction_count_offset =
                     (hasher.transaction_count_offset as isize + offset) as usize;
                 let mut buf_len = hasher.transaction_count_offset;
-                let transaction_count_bytes = header.transaction_count.to_string().into_bytes();
-                let tx_count_len = transaction_count_bytes.len();
+                let transaction_count_str = int_buf.format(header.transaction_count);
+                let tx_count_len = transaction_count_str.len();
                 hasher.buffer[buf_len..buf_len + tx_count_len]
-                    .copy_from_slice(&transaction_count_bytes);
+                    .copy_from_slice(transaction_count_str.as_bytes());
                 buf_len += tx_count_len;
 
                 // did count shrink or grow in length?
@@ -485,14 +488,15 @@ mod test {
     }
 
     fn device_header_bytes(block: &Block, hasher: &BlockHeaderHasher) -> Vec<u8> {
-        let nonce_bytes = block.header.nonce.to_string().into_bytes();
+        let mut nonce_buf = itoa::Buffer::new();
+        let nonce_str = nonce_buf.format(block.header.nonce);
         let last_offset = hasher.nonce_offset + hasher.nonce_len;
 
         let mut bytes = Vec::with_capacity(
-            hasher.nonce_offset + nonce_bytes.len() + hasher.buf_len - last_offset,
+            hasher.nonce_offset + nonce_str.len() + hasher.buf_len - last_offset,
         );
         bytes.extend_from_slice(&hasher.buffer[..hasher.nonce_offset]);
-        bytes.extend_from_slice(&nonce_bytes);
+        bytes.extend_from_slice(nonce_str.as_bytes());
         bytes.extend_from_slice(&hasher.buffer[last_offset..hasher.buf_len]);
         bytes
     }

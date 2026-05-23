@@ -38,6 +38,7 @@ humantime = "2.2"
 ibig = "0.3"
 igd = "0.12"
 irc = { version = "1.0", default-features = false, features = ["tls-rust"] }
+itoa = "1.0"
 log = "0.4"
 lz4 = "1.28"
 network-interface = "2.0"
