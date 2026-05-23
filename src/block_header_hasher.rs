@@ -312,6 +312,7 @@ impl BlockHeaderHasher {
                         0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
                     ],
                 );
+                return;
             } else {
                 log::info!(
                     "GPU miner {_miner_num} found a possible solution: {nonce}, double-checking it..."
