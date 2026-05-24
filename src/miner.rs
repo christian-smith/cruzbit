@@ -3,7 +3,6 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use ed25519_compact::PublicKey;
-use ibig::UBig;
 use log::{error, info};
 use rand::Rng;
 use thiserror::Error;
@@ -198,7 +197,7 @@ impl Miner {
         let mut hashes = 0;
         let mut median_timestamp = 0;
         let mut block = None;
-        let mut target_int = UBig::default();
+        let mut target = BlockID::default();
 
         loop {
             if let Ok(tip) = tip_change_chan_rx.try_recv() {
@@ -225,8 +224,7 @@ impl Miner {
                     next_block.header.time = median_timestamp + 1;
                 }
 
-                // convert our target to a BigInt
-                target_int = next_block.header.target.as_big_int();
+                target = next_block.header.target;
                 block = Some((next_block, BlockHeaderHasher::new()));
             }
 
@@ -308,8 +306,7 @@ impl Miner {
                     next_block.header.time = median_timestamp + 1;
                 }
 
-                // convert our target to a BigInt
-                target_int = next_block.header.target.as_big_int();
+                target = next_block.header.target;
                 block = Some((next_block, BlockHeaderHasher::new()));
             }
 
@@ -317,10 +314,10 @@ impl Miner {
             candidate_block.header.id_fast(self.num, hasher);
             hashes += hasher.hashes_per_attempt;
 
-            if hasher.result <= target_int {
+            if target.is_satisfied_by(&hasher.result[..]) {
                 // found a solution
                 let (candidate_block, hasher) = block.take().unwrap();
-                let id = BlockID::from(hasher.result);
+                let id = BlockID::from(&hasher.result[..]);
                 info!("Miner {} mined new block {}", self.num, &id);
 
                 let handle = Handle::current();

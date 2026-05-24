@@ -75,7 +75,7 @@ impl Block {
 
     /// Verifies the block's proof-of-work satisfies the declared target.
     pub fn check_pow(&self, id: &BlockID) -> bool {
-        id.as_big_int() <= self.header.target.as_big_int()
+        self.header.target.is_satisfied_by(id.as_ref())
     }
 
     /// Adds a new transaction to the block. Called by miner when mining a new block.
@@ -244,9 +244,14 @@ impl BlockID {
         format!("{self}")
     }
 
-    /// Converts from BlockID to BigInt.
+    /// Converts this BlockID to UBig.
     pub fn as_big_int(&self) -> UBig {
         UBig::from_be_bytes(self)
+    }
+
+    /// Returns true when a big-endian 32-byte hash is less than or equal to this target.
+    pub fn is_satisfied_by(&self, hash: &[u8]) -> bool {
+        hash.len() == BLOCK_ID_LENGTH && hash <= self.as_ref()
     }
 }
 
@@ -285,7 +290,7 @@ impl Display for BlockID {
 }
 
 impl From<UBig> for BlockID {
-    /// Converts from BlockID to BigInt.
+    /// Converts from UBig to BlockID.
     fn from(value: UBig) -> Self {
         let mut block_id = BlockID::new();
         let int_bytes = value.to_be_bytes();
@@ -443,7 +448,7 @@ mod test {
         let mut block = make_test_block(1);
         let mut hasher = BlockHeaderHasher::new();
         block.header.id_fast(0, &mut hasher);
-        assert_eq!(hasher.result, block.id().unwrap().as_big_int());
+        assert_eq!(&hasher.result[..], block.id().unwrap().as_ref());
     }
 
     #[test]

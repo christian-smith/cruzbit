@@ -1,5 +1,4 @@
 use faster_hex::hex_encode;
-use ibig::UBig;
 use sha3::digest::generic_array::typenum::U32;
 use sha3::digest::generic_array::GenericArray;
 use sha3::{Digest, Sha3_256};
@@ -33,8 +32,8 @@ pub struct BlockHeaderHasher {
     pub buf_len: usize,
     pub buffer: Vec<u8>,
     pub hasher: Sha3_256,
-    pub result_buf: GenericArray<u8, U32>,
-    pub result: UBig,
+    /// SHA3-256 result bytes.
+    pub result: GenericArray<u8, U32>,
     pub hashes_per_attempt: u64,
 }
 
@@ -306,15 +305,9 @@ impl BlockHeaderHasher {
             // devices don't return a hash just a solving nonce (if found)
             let nonce = hasher.update_device(_miner_num, header, _buffer_changed);
             if nonce == 0x7fffffff_ffffffff {
-                // not found
-                hasher.result = UBig::from_be_bytes(
-                    // indirectly let miner.go know we failed
-                    &[
-                        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-                        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-                        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-                    ],
-                );
+                // not found - keep all-0xFF so the host loop sees a value
+                // greater than any valid target
+                hasher.result.fill(0xff);
                 return;
             } else {
                 log::info!(
@@ -329,8 +322,7 @@ impl BlockHeaderHasher {
 
         // hash it
         hasher.hasher.update(&hasher.buffer[..hasher.buf_len]);
-        hasher.hasher.finalize_into_reset(&mut hasher.result_buf);
-        hasher.result = UBig::from_be_bytes(&hasher.result_buf);
+        hasher.hasher.finalize_into_reset(&mut hasher.result);
     }
 
     /// Handle mining with GPU devices
@@ -476,14 +468,14 @@ mod test {
         // use delta method
         let mut hasher = BlockHeaderHasher::new();
         block.header.id_fast(0, &mut hasher);
-        let id2 = BlockID::from(hasher.result);
+        let id2 = BlockID::from(&hasher.result[..]);
         id == id2
     }
 
     fn compare_ids_with_hasher(block: &mut Block, hasher: &mut BlockHeaderHasher) -> bool {
         let id = block.id().unwrap();
         block.header.id_fast(0, hasher);
-        let id2 = BlockID::from(hasher.result.clone());
+        let id2 = BlockID::from(&hasher.result[..]);
         id == id2
     }
 
