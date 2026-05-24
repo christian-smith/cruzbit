@@ -3,7 +3,7 @@ project(cruzbit_cuda)
 find_package(CUDA REQUIRED)
 set(CUDA_SEPARABLE_COMPILATION ON)
 set(CUDA_NVCC_FLAGS ${CUDA_NVCC_FLAGS}; -Xcompiler -fPIC)
-CUDA_ADD_LIBRARY(cruzbit_cuda SHARED
+CUDA_ADD_LIBRARY(cruzbit_cuda STATIC
   mine.cu
   sha3.cu
   sha3.cc

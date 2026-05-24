@@ -1,7 +1,7 @@
 cmake_minimum_required (VERSION 3.10)
 project(cruzbit_ocl)
 find_package(OpenCL REQUIRED)
-add_library(cruzbit_ocl SHARED
+add_library(cruzbit_ocl STATIC
   ocl.cc
   sha3.cc
   mine.cc
