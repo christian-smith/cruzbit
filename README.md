@@ -79,9 +79,29 @@
 - Immature block rewards tracking (100-block maturity)
 
 ## Getting Started
-### 1. Rust needs to be installed
 
-- MacOS / Linux (from https://www.rust-lang.org/learn/get-started)
+### Pre-built binaries
+
+Each release ships `client` and `wallet` binaries for macOS (Intel + Apple Silicon), Linux (x86_64 + aarch64), and Windows on the [Releases page](https://github.com/christian-smith/cruzbit/releases).
+
+Release builds are published in these flavors:
+- **CPU** - works on any machine, no GPU required.
+- **CUDA** - GPU mining on Nvidia cards. Published for x86_64 Linux and x86_64 Windows. Requires the Nvidia driver to be installed.
+- **OpenCL** - GPU mining on AMD, Intel, and Nvidia. Published for macOS, Linux, and Windows. Requires an OpenCL ICD from your GPU driver. macOS ships OpenCL in the system framework.
+
+1. Download the archive matching your platform from the latest release.
+2. Extract:
+   - Linux / macOS: `tar -xzf cruzbit-v<version>-<target>[-cuda|-opencl].tar.gz`
+   - Windows: unzip `cruzbit-v<version>-<target>[-cuda|-opencl].zip`
+3. Run `./client --help` to verify.
+
+The CUDA and OpenCL wrapper code is linked into the release binaries. GPU driver runtimes (`libcuda`, `libOpenCL`, and vendor ICDs) still need to be present on your system for the GPU variants.
+
+### Building from source
+
+#### 1. Rust needs to be installed
+
+- macOS / Linux (from https://www.rust-lang.org/learn/get-started)
 
    * ```curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh```
 
@@ -89,7 +109,7 @@
   - https://www.petergirnus.com/blog/how-to-install-rust-on-windows
   - https://forge.rust-lang.org/infra/other-installation-methods.html
 
-### 2. cmake needs to be installed
+#### 2. CMake needs to be installed (only for CUDA or OpenCL builds)
 - macOS
   - ```brew install cmake```
 
@@ -99,7 +119,7 @@
 - Windows
   - ```winget install Kitware.CMake```
 
-### 3. Install the client and wallet
+#### 3. Install the client and wallet
 Use ```cargo install cruzbit``` to install the 'client' and 'wallet' executables
 
 - CPU mining:
