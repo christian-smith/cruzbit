@@ -34,7 +34,9 @@ use crate::constants::{
     MAX_MEMO_LENGTH, MAX_PROTOCOL_MESSAGE_LENGTH, MAX_TRANSACTIONS_TO_INCLUDE_PER_BLOCK,
     MIN_AMOUNT_CRUZBITS, MIN_FEE_CRUZBITS,
 };
-use crate::error::{ChannelError, DataError, ErrChain, JsonError, impl_debug_error_chain};
+use crate::error::{
+    ChannelError, DataError, ErrChain, JsonError, impl_box_error_from, impl_debug_error_chain,
+};
 use crate::ledger::{BranchType, Ledger, LedgerError, LedgerNotFoundError};
 use crate::ledger_disk::LedgerDisk;
 use crate::miner::{Miner, MinerError};
@@ -1902,7 +1904,7 @@ impl Peer {
                     Ok(())
                 }
                 Ok(None) => Err(LedgerNotFoundError::ChainTipHeader.into()),
-                Err(err) => Err(PeerGetWorkError::Processor(self.addr, err)),
+                Err(err) => Err(PeerGetWorkError::Processor(self.addr, Box::new(err))),
             }
         };
 
@@ -1932,7 +1934,7 @@ impl Peer {
 
         let work_id = rand_int31();
         let peer_work = match Processor::compute_median_timestamp(tip_header, &self.block_store)
-            .map_err(PeerError::ProcessorComputingMedianTimestamp)
+            .map_err(|err| PeerError::ProcessorComputingMedianTimestamp(Box::new(err)))
         {
             Ok(median_timestamp) => {
                 let key_index = rand::rng().random_range(0..self.pub_keys.len());
@@ -1945,7 +1947,7 @@ impl Peer {
                     self.pub_keys[key_index],
                     self.memo.clone(),
                 )
-                .map_err(PeerError::MinerCreateNextWorkBlock)
+                .map_err(|err| PeerError::MinerCreateNextWorkBlock(Box::new(err)))
                 {
                     Ok(work_block) => Ok(PeerWork {
                         work_id,
@@ -2108,9 +2110,9 @@ pub enum PeerError {
     SyncStalled(SocketAddr),
 
     #[error("miner -> creating next block")]
-    MinerCreateNextWorkBlock(#[source] MinerError),
+    MinerCreateNextWorkBlock(#[source] Box<MinerError>),
     #[error("processor -> computing median timestamp")]
-    ProcessorComputingMedianTimestamp(#[source] ProcessorError),
+    ProcessorComputingMedianTimestamp(#[source] Box<ProcessorError>),
 
     #[error("peer balances")]
     PeerBalances(#[from] PeerBalancesError),
@@ -2119,9 +2121,9 @@ pub enum PeerError {
     #[error("peer filter")]
     PeerFilter(#[from] PeerFilterError),
     #[error("peer get work")]
-    PeerGetWork(#[from] PeerGetWorkError),
+    PeerGetWork(#[source] Box<PeerGetWorkError>),
     #[error("peer submit work")]
-    PeerSubmitWork(#[from] PeerSubmitWorkError),
+    PeerSubmitWork(#[source] Box<PeerSubmitWorkError>),
 
     #[error("block")]
     Block(#[from] BlockError),
@@ -2142,7 +2144,7 @@ pub enum PeerError {
     #[error("peer storage")]
     PeerStorage(#[from] PeerStorageError),
     #[error("processing block")]
-    ProcessBlock(#[from] ProcessBlockError),
+    ProcessBlock(#[source] Box<ProcessBlockError>),
     #[error("processor")]
     Processor(#[from] ProcessorError),
     #[error("transaction")]
@@ -2150,6 +2152,10 @@ pub enum PeerError {
 }
 
 impl_debug_error_chain!(PeerError, "peer");
+
+impl_box_error_from!(PeerError, PeerGetWork, PeerGetWorkError);
+impl_box_error_from!(PeerError, PeerSubmitWork, PeerSubmitWorkError);
+impl_box_error_from!(PeerError, ProcessBlock, ProcessBlockError);
 
 impl From<tokio::sync::mpsc::error::SendError<GetWorkMessage>> for PeerError {
     fn from(err: tokio::sync::mpsc::error::SendError<GetWorkMessage>) -> Self {
@@ -2245,7 +2251,7 @@ pub enum PeerGetWorkError {
     LedgerNotFound(#[from] LedgerNotFoundError),
 
     #[error("getting chain tip header, for: {0}")]
-    Processor(SocketAddr, #[source] ProcessorError),
+    Processor(SocketAddr, #[source] Box<ProcessorError>),
 }
 
 /// Error type associated with cruzbit protocol messages
@@ -2261,5 +2267,7 @@ pub enum PeerSubmitWorkError {
     #[error("block id")]
     Block(#[from] BlockError),
     #[error("processing work block")]
-    ProcessBlock(#[from] ProcessBlockError),
+    ProcessBlock(#[source] Box<ProcessBlockError>),
 }
+
+impl_box_error_from!(PeerSubmitWorkError, ProcessBlock, ProcessBlockError);

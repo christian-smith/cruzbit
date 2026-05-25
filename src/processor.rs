@@ -32,7 +32,9 @@ use crate::constants::{
     NUM_BLOCKS_FOR_MEDIAN_TIMESTAMP, RETARGET_INTERVAL, RETARGET_SMA_WINDOW, RETARGET_TIME,
     TARGET_SPACING,
 };
-use crate::error::{ChannelError, EncodingError, ErrChain, impl_debug_error_chain};
+use crate::error::{
+    ChannelError, EncodingError, ErrChain, impl_box_error_from, impl_debug_error_chain,
+};
 use crate::ledger::{BranchType, Ledger, LedgerError, LedgerNotFoundError};
 use crate::ledger_disk::LedgerDisk;
 use crate::shutdown::{ShutdownChanReceiver, SpawnedError};
@@ -1360,7 +1362,7 @@ pub enum ProcessBlockError {
     #[error("processing block transactions")]
     ProcessBlockTransactions(#[from] ProcessBlockTransactionsError),
     #[error("processing transaction")]
-    ProcessTransaction(#[from] ProcessTransactionError),
+    ProcessTransaction(#[source] Box<ProcessTransactionError>),
     #[error("processor")]
     Processor(#[source] Box<ProcessorError>),
     #[error("transaction")]
@@ -1375,6 +1377,12 @@ impl From<ProcessorError> for ProcessBlockError {
         Self::Processor(Box::new(value))
     }
 }
+
+impl_box_error_from!(
+    ProcessBlockError,
+    ProcessTransaction,
+    ProcessTransactionError
+);
 
 impl From<tokio::sync::mpsc::error::SendError<BlockToProcess>> for ProcessBlockError {
     fn from(err: tokio::sync::mpsc::error::SendError<BlockToProcess>) -> Self {
@@ -1492,9 +1500,6 @@ pub enum ProcessTransactionError {
     SignatureVerificationFailed(TransactionID),
     #[error("transaction time too large, transaction: {0}")]
     TimeTooLarge(TransactionID),
-
-    #[error("failed to get transaction index for transaction {0}")]
-    LedgerGetTransactionIndex(TransactionID, #[source] LedgerError),
 
     #[error("channel")]
     Channel(#[from] ChannelError),

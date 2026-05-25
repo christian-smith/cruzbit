@@ -14,7 +14,7 @@ use crate::block::{Block, BlockError, BlockHeader, BlockID};
 use crate::block_header_hasher::BlockHeaderHasher;
 use crate::block_storage_disk::BlockStorageDisk;
 use crate::constants::{MAX_NUMBER, MAX_TRANSACTIONS_TO_INCLUDE_PER_BLOCK};
-use crate::error::{ChannelError, ErrChain, impl_debug_error_chain};
+use crate::error::{ChannelError, ErrChain, impl_box_error_from, impl_debug_error_chain};
 use crate::ledger::LedgerNotFoundError;
 use crate::ledger_disk::LedgerDisk;
 use crate::peer::PEER_ADDR_SELF;
@@ -327,7 +327,7 @@ impl Miner {
                         .processor
                         .process_candidate_block(id, candidate_block, PEER_ADDR_SELF)
                         .await
-                        .map_err(MinerError::ProcessBlock)
+                        .map_err(MinerError::from)
                     {
                         error!("{err:?}");
                     }
@@ -401,7 +401,7 @@ impl Miner {
 
         // compute the next target
         let new_target = Processor::compute_target(tip_header, block_store, ledger)
-            .map_err(|err| MinerError::ComputeTarget(*tip_id, err))?;
+            .map_err(|err| MinerError::ComputeTarget(*tip_id, Box::new(err)))?;
 
         // create the block
         let block = Block::new(*tip_id, new_height, new_target, tip_header.chain_work, txs)?;
@@ -423,7 +423,7 @@ pub enum MinerError {
     #[error("public key at index {0} is missing")]
     PublicKeyAtIndexMissing(usize),
     #[error("failed to compute target for block: {0}")]
-    ComputeTarget(BlockID, #[source] ProcessBlockError),
+    ComputeTarget(BlockID, #[source] Box<ProcessBlockError>),
 
     #[error("channel")]
     Channel(#[from] ChannelError),
@@ -434,12 +434,14 @@ pub enum MinerError {
     #[error("peer manager")]
     PeerManager(#[from] PeerManagerError),
     #[error("processing block")]
-    ProcessBlock(#[from] ProcessBlockError),
+    ProcessBlock(#[source] Box<ProcessBlockError>),
     #[error("processor")]
     ProcessorError(#[from] ProcessorError),
 }
 
 impl_debug_error_chain!(MinerError, "miner");
+
+impl_box_error_from!(MinerError, ProcessBlock, ProcessBlockError);
 
 impl From<tokio::sync::mpsc::error::SendError<u64>> for MinerError {
     fn from(err: tokio::sync::mpsc::error::SendError<u64>) -> Self {

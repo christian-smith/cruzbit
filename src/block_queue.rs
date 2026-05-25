@@ -132,7 +132,7 @@ mod tests {
     }
 
     fn make_test_addr(port: u16) -> SocketAddr {
-        SocketAddr::from_str(&format!("127.0.0.1:{}", port)).unwrap()
+        SocketAddr::from_str(&format!("127.0.0.1:{port}")).unwrap()
     }
 
     #[test]

@@ -37,6 +37,18 @@ macro_rules! impl_debug_error_chain {
 }
 pub use impl_debug_error_chain;
 
+#[macro_export]
+macro_rules! impl_box_error_from {
+    ($error:ty, $variant:ident, $source:ty) => {
+        impl From<$source> for $error {
+            fn from(value: $source) -> Self {
+                Self::$variant(Box::new(value))
+            }
+        }
+    };
+}
+pub use impl_box_error_from;
+
 #[derive(Error, Debug)]
 pub enum ChannelError {
     #[error("receive on {0} channel")]

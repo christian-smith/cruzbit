@@ -226,11 +226,11 @@ impl serde_json::ser::Formatter for GoHtmlFormatter {
                 '\u{2029}' => b"\\u2029",
                 _ => continue,
             };
-            writer.write_all(fragment[start..i].as_bytes())?;
+            writer.write_all(&fragment.as_bytes()[start..i])?;
             writer.write_all(escape)?;
             start = i + c.len_utf8();
         }
-        writer.write_all(fragment[start..].as_bytes())
+        writer.write_all(&fragment.as_bytes()[start..])
     }
 }
 
