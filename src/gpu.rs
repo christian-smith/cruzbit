@@ -5,7 +5,7 @@ use crate::block::BlockID;
 type Int64T = i64;
 type SizeT = usize;
 
-extern "C" {
+unsafe extern "C" {
     #[cfg(feature = "cuda")]
     fn cuda_init() -> c_int;
     #[cfg(feature = "opencl")]

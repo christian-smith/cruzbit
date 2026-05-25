@@ -7,14 +7,14 @@ use log::{error, info};
 use rand::Rng;
 use thiserror::Error;
 use tokio::runtime::Handle;
-use tokio::sync::mpsc::{channel, unbounded_channel, Receiver, Sender};
+use tokio::sync::mpsc::{Receiver, Sender, channel, unbounded_channel};
 use tokio::task::JoinHandle;
 
 use crate::block::{Block, BlockError, BlockHeader, BlockID};
 use crate::block_header_hasher::BlockHeaderHasher;
 use crate::block_storage_disk::BlockStorageDisk;
 use crate::constants::{MAX_NUMBER, MAX_TRANSACTIONS_TO_INCLUDE_PER_BLOCK};
-use crate::error::{impl_debug_error_chain, ChannelError, ErrChain};
+use crate::error::{ChannelError, ErrChain, impl_debug_error_chain};
 use crate::ledger::LedgerNotFoundError;
 use crate::ledger_disk::LedgerDisk;
 use crate::peer::PEER_ADDR_SELF;

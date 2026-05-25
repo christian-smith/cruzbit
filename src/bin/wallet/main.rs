@@ -17,7 +17,7 @@ use cruzbit::error::{DataError, EncodingError, ErrChain, FileError, JsonError, P
 use cruzbit::genesis::GENESIS_BLOCK_JSON;
 use cruzbit::impl_debug_error_chain;
 use cruzbit::protocol::{FilterBlockMessage, PushTransactionMessage};
-use cruzbit::transaction::{Transaction, TransactionError, TransactionID, TRANSACTION_ID_LENGTH};
+use cruzbit::transaction::{TRANSACTION_ID_LENGTH, Transaction, TransactionError, TransactionID};
 use cruzbit::utils::resolve_host;
 use cruzbit::wallet::{FilterBlockCallback, TransactionCallback, Wallet, WalletError};
 use dialoguer::theme::SimpleTheme;
@@ -28,7 +28,7 @@ use faster_hex::hex_decode;
 use futures::Future;
 use getopts::Options;
 use humantime::format_rfc3339;
-use log::{error, Level};
+use log::{Level, error};
 use thiserror::Error;
 use tokio::sync::Mutex as AsyncMutex;
 
@@ -332,7 +332,10 @@ async fn handle_cmd(
         }
 
         "export" => {
-            println!("{}: Anyone with access to a wallet's private key(s) has full control of the funds in the wallet.", style("WARNING").bold().red());
+            println!(
+                "{}: Anyone with access to a wallet's private key(s) has full control of the funds in the wallet.",
+                style("WARNING").bold().red()
+            );
             let confirm = prompt_for_confirmation("Are you sure you wish to proceed?");
             if !confirm {
                 println!("Aborting export");
@@ -955,23 +958,41 @@ impl Completion for CmdCompletion {
 impl Default for CmdCompletion {
     fn default() -> Self {
         let items = vec![
-		("balance",  "Retrieve the current balance of all public keys"),
-		("clearconf",  "Clear all pending transaction confirmation notifications"),
-		("clearnew",  "Clear all pending incoming transaction notifications"),
-		("conf",  "Show new transaction confirmations"),
-		("dumpkeys",  "Dump all of the wallet's public keys to a text file"),
-		("export",  "Save all of the wallet's public-private key pairs to a text file"),
-		("genkeys",  "Generate multiple keys at once"),
-		("import",  "Import public-private key pairs from a text file"),
-	        ("listkeys",  "List all known public keys"),
-                ("newkey", "Generate and store a new private key"),
-		("rewards",  "Show immature block rewards for all public keys"),
-		("send",  "Send cruzbits to someone"),
-		("show",  "Show new incoming transactions"),
-		("txstatus",  "Show confirmed transaction information given a transaction ID"),
-		("verify",  "Verify the private key is decryptable and intact for all public keys displayed with 'listkeys'"),
-                ("quit",  "Quit this wallet session"),
-             ];
+            ("balance", "Retrieve the current balance of all public keys"),
+            (
+                "clearconf",
+                "Clear all pending transaction confirmation notifications",
+            ),
+            (
+                "clearnew",
+                "Clear all pending incoming transaction notifications",
+            ),
+            ("conf", "Show new transaction confirmations"),
+            (
+                "dumpkeys",
+                "Dump all of the wallet's public keys to a text file",
+            ),
+            (
+                "export",
+                "Save all of the wallet's public-private key pairs to a text file",
+            ),
+            ("genkeys", "Generate multiple keys at once"),
+            ("import", "Import public-private key pairs from a text file"),
+            ("listkeys", "List all known public keys"),
+            ("newkey", "Generate and store a new private key"),
+            ("rewards", "Show immature block rewards for all public keys"),
+            ("send", "Send cruzbits to someone"),
+            ("show", "Show new incoming transactions"),
+            (
+                "txstatus",
+                "Show confirmed transaction information given a transaction ID",
+            ),
+            (
+                "verify",
+                "Verify the private key is decryptable and intact for all public keys displayed with 'listkeys'",
+            ),
+            ("quit", "Quit this wallet session"),
+        ];
 
         Self::new(items)
     }

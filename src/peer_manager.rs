@@ -1,30 +1,30 @@
-use std::collections::hash_map::Entry;
 use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
-use std::str::{from_utf8, FromStr};
+use std::str::{FromStr, from_utf8};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
 use log::{error, info};
 use network_interface::{NetworkInterface, NetworkInterfaceConfig};
-use rand::seq::{IteratorRandom, SliceRandom};
 use rand::Rng;
+use rand::seq::{IteratorRandom, SliceRandom};
 use thiserror::Error;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::mpsc::{channel, Receiver, Sender};
+use tokio::sync::mpsc::{Receiver, Sender, channel};
 use tokio::task::JoinHandle;
-use tokio::time::{interval_at, sleep_until, timeout, Instant};
-use tokio_rustls::rustls::pki_types::ServerName;
+use tokio::time::{Instant, interval_at, sleep_until, timeout};
 use tokio_rustls::rustls::ServerConfig;
+use tokio_rustls::rustls::pki_types::ServerName;
 use tokio_rustls::server::TlsStream;
 use tokio_rustls::{TlsAcceptor, TlsConnector};
 use tokio_tungstenite::accept_hdr_async;
-use tokio_tungstenite::tungstenite::handshake::server::{Request, Response};
-use tokio_tungstenite::tungstenite::http::{header, StatusCode};
 use tokio_tungstenite::tungstenite::Error as WsError;
+use tokio_tungstenite::tungstenite::handshake::server::{Request, Response};
+use tokio_tungstenite::tungstenite::http::{StatusCode, header};
 
 use crate::block::BlockID;
 use crate::block_queue::BlockQueue;
@@ -35,7 +35,7 @@ use crate::constants::{
 };
 use crate::dns::query_for_peers;
 use crate::error::{
-    impl_debug_error_chain, ChannelError, DataError, ErrChain, ParsingError, SocketError,
+    ChannelError, DataError, ErrChain, ParsingError, SocketError, impl_debug_error_chain,
 };
 use crate::irc::IRC;
 use crate::ledger_disk::LedgerDisk;
@@ -44,8 +44,8 @@ use crate::peer_storage::{PeerStorage, PeerStorageError};
 use crate::peer_storage_disk::PeerStorageDisk;
 use crate::processor::{Processor, ProcessorError};
 use crate::protocol::PROTOCOL;
-use crate::shutdown::{shutdown_channel, Shutdown, ShutdownChanReceiver, SpawnedError};
-use crate::tls::{self, generate_self_signed_cert_and_key, server_config, TlsError};
+use crate::shutdown::{Shutdown, ShutdownChanReceiver, SpawnedError, shutdown_channel};
+use crate::tls::{self, TlsError, generate_self_signed_cert_and_key, server_config};
 use crate::transaction_queue_memory::TransactionQueueMemory;
 use crate::utils::{addr_is_reserved, now_as_secs, rand_int31, resolve_host};
 

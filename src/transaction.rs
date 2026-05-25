@@ -6,7 +6,7 @@ use base64ct::{Base64, Encoding};
 use ed25519_compact::{PublicKey, SecretKey, Signature};
 use faster_hex::hex_encode;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use serde_with::{serde_as, skip_serializing_none, DeserializeAs, SerializeAs};
+use serde_with::{DeserializeAs, SerializeAs, serde_as, skip_serializing_none};
 use sha3::{Digest, Sha3_256};
 use thiserror::Error;
 

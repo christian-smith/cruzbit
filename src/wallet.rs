@@ -5,8 +5,8 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
 
 use argon2::{Algorithm, Argon2, Params, Version};
-use crypto_secretbox::aead::{Aead, KeyInit};
 use crypto_secretbox::XSalsa20Poly1305;
+use crypto_secretbox::aead::{Aead, KeyInit};
 use cuckoofilter::{CuckooError, CuckooFilter};
 use ed25519_compact::{KeyPair, PublicKey, SecretKey};
 use futures::stream::SplitSink;
@@ -19,24 +19,24 @@ use log::{error, info};
 use rand::RngCore;
 use thiserror::Error;
 use tokio::net::TcpStream;
-use tokio::sync::mpsc::{channel, Receiver, Sender};
-use tokio::sync::{oneshot, Mutex as AsyncMutex};
+use tokio::sync::mpsc::{Receiver, Sender, channel};
+use tokio::sync::{Mutex as AsyncMutex, oneshot};
 use tokio::task::JoinHandle;
 use tokio::time::timeout;
-use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::Message as WsMessage;
+use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::{
-    connect_async_tls_with_config, Connector, MaybeTlsStream, WebSocketStream,
+    Connector, MaybeTlsStream, WebSocketStream, connect_async_tls_with_config,
 };
 
 use crate::block::{BlockHeader, BlockID};
-use crate::error::{impl_debug_error_chain, ChannelError, DataError, DbError, ErrChain, JsonError};
-use crate::peer::{PeerConnectionError, CONNECT_WAIT, WRITE_WAIT};
+use crate::error::{ChannelError, DataError, DbError, ErrChain, JsonError, impl_debug_error_chain};
+use crate::peer::{CONNECT_WAIT, PeerConnectionError, WRITE_WAIT};
 use crate::protocol::{
     FilterBlockMessage, FilterLoadMessage, GetBalanceMessage, GetPublicKeyTransactionsMessage,
-    GetTransactionMessage, Message, PublicKeyTransactionsMessage, PushTransactionMessage, PROTOCOL,
+    GetTransactionMessage, Message, PROTOCOL, PublicKeyTransactionsMessage, PushTransactionMessage,
 };
-use crate::shutdown::{shutdown_channel, Shutdown, ShutdownChanReceiver, SpawnedError};
+use crate::shutdown::{Shutdown, ShutdownChanReceiver, SpawnedError, shutdown_channel};
 use crate::tls::client_config;
 use crate::transaction::{AsBase64, Transaction, TransactionError, TransactionID};
 

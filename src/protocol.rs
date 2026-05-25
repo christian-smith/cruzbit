@@ -2,7 +2,7 @@ use base64ct::{Base64, Encoding};
 use cuckoofilter::ExportedCuckooFilter;
 use ed25519_compact::PublicKey;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use serde_with::{serde_as, skip_serializing_none, DefaultOnNull, DeserializeAs, SerializeAs};
+use serde_with::{DefaultOnNull, DeserializeAs, SerializeAs, serde_as, skip_serializing_none};
 
 use crate::block::{Block, BlockHeader, BlockID};
 use crate::error::{DataError, EncodingError};

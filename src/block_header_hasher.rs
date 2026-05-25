@@ -1,6 +1,6 @@
 use faster_hex::hex_encode;
-use sha3::digest::generic_array::typenum::U32;
 use sha3::digest::generic_array::GenericArray;
+use sha3::digest::generic_array::typenum::U32;
 use sha3::{Digest, Sha3_256};
 
 use crate::block::BlockHeader;

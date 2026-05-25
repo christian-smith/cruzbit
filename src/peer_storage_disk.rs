@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::path::PathBuf;
-use std::str::{from_utf8, FromStr};
+use std::str::{FromStr, from_utf8};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 

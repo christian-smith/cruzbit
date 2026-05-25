@@ -1,7 +1,7 @@
 use faster_hex::hex_string;
 use futures::StreamExt;
-use irc::client::data::Config;
 use irc::client::Client;
+use irc::client::data::Config;
 use irc::proto::{Command, Prefix, Response};
 use log::{error, info};
 use rand::Rng;
@@ -9,7 +9,7 @@ use thiserror::Error;
 use tokio::task::JoinHandle;
 
 use crate::block::BlockID;
-use crate::error::{impl_debug_error_chain, ChannelError, ErrChain, ParsingError};
+use crate::error::{ChannelError, ErrChain, ParsingError, impl_debug_error_chain};
 use crate::peer_manager::AddrChanSender;
 use crate::shutdown::{ShutdownChanReceiver, SpawnedError};
 

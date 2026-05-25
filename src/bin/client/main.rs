@@ -3,7 +3,7 @@ use std::env::args;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
-use std::process::{exit, ExitCode};
+use std::process::{ExitCode, exit};
 use std::sync::{Arc, OnceLock};
 
 use base64ct::{Base64, Encoding};
@@ -13,7 +13,7 @@ use cruzbit::block_storage_disk::BlockStorageDisk;
 use cruzbit::constants::{DEFAULT_CRUZBIT_PORT, MAX_INBOUND_PEER_CONNECTIONS};
 use cruzbit::dns::DnsSeeder;
 use cruzbit::error::{
-    impl_debug_error_chain, DataError, EncodingError, ErrChain, FileError, JsonError, ParsingError,
+    DataError, EncodingError, ErrChain, FileError, JsonError, ParsingError, impl_debug_error_chain,
 };
 use cruzbit::genesis::GENESIS_BLOCK_JSON;
 use cruzbit::ledger::LedgerError;
@@ -21,18 +21,18 @@ use cruzbit::ledger_disk::LedgerDisk;
 use cruzbit::miner::{HashrateMonitor, Miner};
 use cruzbit::peer::PEER_ADDR_SELF;
 use cruzbit::peer_manager::{
-    determine_external_ip, have_local_ip_match, PeerManager, PeerManagerError,
+    PeerManager, PeerManagerError, determine_external_ip, have_local_ip_match,
 };
 use cruzbit::peer_storage::PeerStorageError;
 use cruzbit::peer_storage_disk::PeerStorageDisk;
 use cruzbit::processor::{ProcessBlockError, Processor};
-use cruzbit::shutdown::{shutdown_channel, Shutdown};
+use cruzbit::shutdown::{Shutdown, shutdown_channel};
 use cruzbit::transaction_queue_memory::TransactionQueueMemory;
 use cruzbit::utils::resolve_host;
 use ed25519_compact::PublicKey;
 use env_logger::{Builder, Env};
 use getopts::Options;
-use log::{error, info, Level};
+use log::{Level, error, info};
 use thiserror::Error;
 use tokio::signal;
 use tokio::sync::mpsc::channel;

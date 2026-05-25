@@ -10,29 +10,29 @@ use ibig::UBig;
 use log::{error, info};
 use sha3::{Digest, Sha3_256};
 use thiserror::Error;
+use tokio::sync::Mutex as AsyncMutex;
 use tokio::sync::mpsc::{
-    channel, unbounded_channel, Receiver, Sender, UnboundedReceiver, UnboundedSender,
+    Receiver, Sender, UnboundedReceiver, UnboundedSender, channel, unbounded_channel,
 };
 use tokio::sync::oneshot;
-use tokio::sync::Mutex as AsyncMutex;
 use tokio::task::JoinHandle;
 
 use crate::block::{
-    compute_chain_work, compute_hash_list_root, Block, BlockError, BlockHeader, BlockID,
+    Block, BlockError, BlockHeader, BlockID, compute_chain_work, compute_hash_list_root,
 };
 use crate::block_storage::{BlockStorage, BlockStorageError, BlockStorageNotFoundError};
 use crate::block_storage_disk::BlockStorageDisk;
-use crate::checkpoints::{checkpoint_check, CheckpointError};
+use crate::checkpoints::{CheckpointError, checkpoint_check};
 use crate::constants::{
     BITCOIN_CASH_RETARGET_ALGORITHM_HEIGHT, BLOCKS_UNTIL_NEW_SERIES, BLOCKS_UNTIL_REWARD_HALVING,
     BLOCKS_UNTIL_TRANSACTIONS_PER_BLOCK_DOUBLING, CRUZBITS_PER_CRUZ, INITIAL_COINBASE_REWARD,
     INITIAL_MAX_TRANSACTIONS_PER_BLOCK, INITIAL_TARGET, MAX_FUTURE_SECONDS, MAX_MEMO_LENGTH,
-    MAX_MONEY, MAX_NUMBER, MAX_TRANSACTIONS_PER_BLOCK,
-    MAX_TRANSACTIONS_PER_BLOCK_EXCEEDED_AT_HEIGHT, MAX_TRANSACTION_QUEUE_LENGTH,
-    MIN_AMOUNT_CRUZBITS, MIN_FEE_CRUZBITS, NUM_BLOCKS_FOR_MEDIAN_TIMESTAMP, RETARGET_INTERVAL,
-    RETARGET_SMA_WINDOW, RETARGET_TIME, TARGET_SPACING,
+    MAX_MONEY, MAX_NUMBER, MAX_TRANSACTION_QUEUE_LENGTH, MAX_TRANSACTIONS_PER_BLOCK,
+    MAX_TRANSACTIONS_PER_BLOCK_EXCEEDED_AT_HEIGHT, MIN_AMOUNT_CRUZBITS, MIN_FEE_CRUZBITS,
+    NUM_BLOCKS_FOR_MEDIAN_TIMESTAMP, RETARGET_INTERVAL, RETARGET_SMA_WINDOW, RETARGET_TIME,
+    TARGET_SPACING,
 };
-use crate::error::{impl_debug_error_chain, ChannelError, EncodingError, ErrChain};
+use crate::error::{ChannelError, EncodingError, ErrChain, impl_debug_error_chain};
 use crate::ledger::{BranchType, Ledger, LedgerError, LedgerNotFoundError};
 use crate::ledger_disk::LedgerDisk;
 use crate::shutdown::{ShutdownChanReceiver, SpawnedError};

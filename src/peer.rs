@@ -1,5 +1,5 @@
-use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
+use std::collections::hash_map::DefaultHasher;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::str::from_utf8;
 use std::sync::Arc;
@@ -14,15 +14,15 @@ use log::{error, info};
 use rand::Rng;
 use thiserror::Error;
 use tokio::net::TcpStream;
-use tokio::sync::mpsc::{channel, unbounded_channel, UnboundedSender};
+use tokio::sync::mpsc::{UnboundedSender, channel, unbounded_channel};
 use tokio::task::JoinHandle;
-use tokio::time::{interval_at, sleep, timeout, Instant};
+use tokio::time::{Instant, interval_at, sleep, timeout};
 use tokio_rustls::server::TlsStream;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::http::StatusCode;
 use tokio_tungstenite::tungstenite::{Bytes, Error as WsError, Message as WsMessage};
 use tokio_tungstenite::{
-    connect_async_tls_with_config, Connector, MaybeTlsStream, WebSocketStream,
+    Connector, MaybeTlsStream, WebSocketStream, connect_async_tls_with_config,
 };
 
 use crate::block::{Block, BlockError, BlockHeader, BlockID};
@@ -34,7 +34,7 @@ use crate::constants::{
     MAX_MEMO_LENGTH, MAX_PROTOCOL_MESSAGE_LENGTH, MAX_TRANSACTIONS_TO_INCLUDE_PER_BLOCK,
     MIN_AMOUNT_CRUZBITS, MIN_FEE_CRUZBITS,
 };
-use crate::error::{impl_debug_error_chain, ChannelError, DataError, ErrChain, JsonError};
+use crate::error::{ChannelError, DataError, ErrChain, JsonError, impl_debug_error_chain};
 use crate::ledger::{BranchType, Ledger, LedgerError, LedgerNotFoundError};
 use crate::ledger_disk::LedgerDisk;
 use crate::miner::{Miner, MinerError};

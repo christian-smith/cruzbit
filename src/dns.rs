@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use domain::base::iana::Rcode;
 use domain::base::{Message, MessageBuilder, Name, Rtype, StaticCompressor, StreamTarget};
-use domain::rdata::{Aaaa, AllRecordData, A};
+use domain::rdata::{A, Aaaa, AllRecordData};
 use log::{error, info};
 use rand::seq::SliceRandom;
 use thiserror::Error;
@@ -14,7 +14,7 @@ use tokio::task::JoinHandle;
 use tokio::time::timeout;
 
 use crate::constants::DEFAULT_CRUZBIT_PORT;
-use crate::error::{impl_debug_error_chain, ErrChain, ParsingError, SocketError};
+use crate::error::{ErrChain, ParsingError, SocketError, impl_debug_error_chain};
 use crate::peer_storage::{PeerStorage, PeerStorageError};
 use crate::peer_storage_disk::PeerStorageDisk;
 use crate::shutdown::{ShutdownChanReceiver, SpawnedError};

@@ -11,13 +11,13 @@ use leveldb::options::{Options, ReadOptions, WriteOptions};
 use leveldb::snapshots::Snapshots;
 
 use crate::balance_cache::BalanceCache;
-use crate::block::{Block, BlockID, BLOCK_ID_LENGTH};
+use crate::block::{BLOCK_ID_LENGTH, Block, BlockID};
 use crate::block_storage::BlockStorage;
 use crate::block_storage_disk::BlockStorageDisk;
 use crate::constants::{BLOCKS_UNTIL_NEW_SERIES, COINBASE_MATURITY};
 use crate::error::{DataError, DbError};
 use crate::ledger::{BranchType, Ledger, LedgerError, LedgerNotFoundError};
-use crate::transaction::{TransactionID, TRANSACTION_ID_LENGTH};
+use crate::transaction::{TRANSACTION_ID_LENGTH, TransactionID};
 
 /// An on-disk implementation of the Ledger interface using LevelDB.
 pub struct LedgerDisk {
@@ -945,8 +945,8 @@ mod test {
     use ed25519_compact::KeyPair;
     use tempfile::tempdir;
 
-    use crate::block::test_utils::make_test_block;
     use crate::block::Block;
+    use crate::block::test_utils::make_test_block;
     use crate::constants::CRUZBITS_PER_CRUZ;
     use crate::transaction::Transaction;
     use crate::utils::now_as_secs;
