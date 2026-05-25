@@ -1,6 +1,5 @@
 use faster_hex::hex_encode;
-use sha3::digest::generic_array::GenericArray;
-use sha3::digest::generic_array::typenum::U32;
+use sha3::digest::Output;
 use sha3::{Digest, Sha3_256};
 
 use crate::block::BlockHeader;
@@ -33,7 +32,7 @@ pub struct BlockHeaderHasher {
     pub buffer: Vec<u8>,
     pub hasher: Sha3_256,
     /// SHA3-256 result bytes.
-    pub result: GenericArray<u8, U32>,
+    pub result: Output<Sha3_256>,
     pub hashes_per_attempt: u64,
 }
 
