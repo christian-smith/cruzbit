@@ -4,7 +4,7 @@ use irc::client::Client;
 use irc::client::data::Config;
 use irc::proto::{Command, Prefix, Response};
 use log::{error, info};
-use rand::Rng;
+use rand::RngExt;
 use thiserror::Error;
 use tokio::task::JoinHandle;
 

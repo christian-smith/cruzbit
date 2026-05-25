@@ -11,7 +11,7 @@ use futures::future::Either;
 use futures::stream::SplitSink;
 use futures::{SinkExt, StreamExt};
 use log::{error, info};
-use rand::Rng;
+use rand::RngExt;
 use thiserror::Error;
 use tokio::net::TcpStream;
 use tokio::sync::mpsc::{UnboundedSender, channel, unbounded_channel};

@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 
 use ed25519_compact::PublicKey;
 use log::{error, info};
-use rand::Rng;
+use rand::RngExt;
 use thiserror::Error;
 use tokio::runtime::Handle;
 use tokio::sync::mpsc::{Receiver, Sender, channel, unbounded_channel};

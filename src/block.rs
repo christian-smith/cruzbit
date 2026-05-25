@@ -4,7 +4,7 @@ use std::ops::{Deref, DerefMut};
 
 use faster_hex::hex_encode;
 use ibig::UBig;
-use rand::Rng;
+use rand::RngExt;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use sha3::{Digest, Sha3_256};
 use thiserror::Error;

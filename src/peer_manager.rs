@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use log::{error, info};
 use network_interface::{NetworkInterface, NetworkInterfaceConfig};
-use rand::Rng;
+use rand::RngExt;
 use rand::seq::{IteratorRandom, SliceRandom};
 use thiserror::Error;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};

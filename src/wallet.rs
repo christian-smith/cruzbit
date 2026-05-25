@@ -16,7 +16,7 @@ use leveldb::database::{self, Database};
 use leveldb::iterator::{Iterable, LevelDBIterator};
 use leveldb::options::{Options, ReadOptions, WriteOptions};
 use log::{error, info};
-use rand::RngCore;
+use rand::Rng;
 use thiserror::Error;
 use tokio::net::TcpStream;
 use tokio::sync::mpsc::{Receiver, Sender, channel};

@@ -350,7 +350,7 @@ dependencies = [
  "log",
  "lz4",
  "network-interface",
- "rand 0.9.4",
+ "rand 0.10.1",
  "rcgen",
  "rustls",
  "rustls-pemfile",

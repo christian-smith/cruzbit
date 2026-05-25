@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::result;
 use std::sync::Arc;
 
-use rand::Rng;
+use rand::RngExt;
 use rcgen::{
     CertificateParams, DnType, ExtendedKeyUsagePurpose, IsCa, KeyUsagePurpose, SerialNumber,
 };

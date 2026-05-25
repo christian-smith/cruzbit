@@ -1,7 +1,7 @@
 use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use rand::Rng;
+use rand::RngExt;
 
 use crate::error::ParsingError;
 

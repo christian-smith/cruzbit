@@ -10,7 +10,7 @@ use leveldb::database::{Database, DatabaseReader};
 use leveldb::iterator::{Iterable, LevelDBIterator};
 use leveldb::options::{Options, ReadOptions, WriteOptions};
 use leveldb::snapshots::Snapshots;
-use rand::Rng;
+use rand::RngExt;
 use serde::{Deserialize, Serialize};
 
 use crate::error::{DataError, DbError, EncodingError, ParsingError};
