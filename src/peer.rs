@@ -21,6 +21,7 @@ use tokio::task::JoinHandle;
 use tokio::time::{Instant, interval_at, sleep, timeout};
 use tokio_rustls::server::TlsStream;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+use tokio_tungstenite::tungstenite::error::ProtocolError;
 use tokio_tungstenite::tungstenite::http::StatusCode;
 use tokio_tungstenite::tungstenite::{Bytes, Error as WsError, Message as WsMessage};
 use tokio_tungstenite::{
@@ -183,7 +184,10 @@ impl PeerWriter {
         self.processor
             .unregister_for_new_transactions(new_tx_chan_tx);
 
-        result
+        match result {
+            Err(err) if Peer::is_closed_peer_error(&err) => Ok(()),
+            result => result,
+        }
     }
 
     async fn run_registered(
@@ -2256,6 +2260,21 @@ impl Peer {
             Ok(Err(err)) => Err(err.into()),
             _ => Ok(()),
         }
+    }
+
+    fn is_closed_write_error(err: &PeerConnectionError) -> bool {
+        matches!(
+            err,
+            PeerConnectionError::Websocket(
+                WsError::ConnectionClosed
+                    | WsError::AlreadyClosed
+                    | WsError::Protocol(ProtocolError::SendAfterClosing)
+            )
+        )
+    }
+
+    fn is_closed_peer_error(err: &PeerError) -> bool {
+        matches!(err, PeerError::PeerConnection(err) if Peer::is_closed_write_error(err))
     }
 
     /// Specifies a handler to call when the peer connection is closed.
