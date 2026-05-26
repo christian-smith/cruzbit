@@ -3,6 +3,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::str::from_utf8;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 
 use cuckoofilter::{CuckooFilter, ExportedCuckooFilter};
@@ -14,7 +15,8 @@ use log::{error, info};
 use rand::RngExt;
 use thiserror::Error;
 use tokio::net::TcpStream;
-use tokio::sync::mpsc::{UnboundedSender, channel, unbounded_channel};
+use tokio::sync::RwLock;
+use tokio::sync::mpsc::{Receiver, Sender, channel};
 use tokio::task::JoinHandle;
 use tokio::time::{Instant, interval_at, sleep, timeout};
 use tokio_rustls::server::TlsStream;
@@ -43,7 +45,7 @@ use crate::miner::{Miner, MinerError};
 use crate::peer_manager::{AddrChanSender, PeerManager, PeerManagerError};
 use crate::peer_storage::{PeerStorage, PeerStorageError};
 use crate::peer_storage_disk::PeerStorageDisk;
-use crate::processor::{ProcessBlockError, Processor, ProcessorError};
+use crate::processor::{ProcessBlockError, Processor, ProcessorError, TIP_CHANGE_CHAN_CAPACITY};
 use crate::protocol::{
     BalanceMessage, BalancesMessage, BlockHeaderMessage, BlockMessage, FilterBlockMessage,
     FilterResultMessage, FilterTransactionQueueMessage, FindCommonAncestorMessage, GetBlockMessage,
@@ -85,12 +87,12 @@ pub struct Peer {
     ignore_blocks: HashMap<BlockID, bool>,
     continuation_block_id: Option<BlockID>,
     last_peer_addresses_received_time: Option<Instant>,
-    filter: Option<CuckooFilter<DefaultHasher>>,
+    filter: Arc<RwLock<Option<CuckooFilter<DefaultHasher>>>>,
     addr_chan_tx: AddrChanSender,
     work: Option<PeerWork>,
     pub_keys: Vec<PublicKey>,
     memo: Option<String>,
-    read_limit: u32,
+    read_limit: Arc<AtomicU32>,
     addr: SocketAddr,
     shutdown_chan_rx: ShutdownChanReceiver,
     shutdown_fns: Vec<Box<dyn Fn() + Send + Sync>>,
@@ -102,7 +104,28 @@ pub struct PeerWork {
     median_timestamp: u64,
 }
 
-type OutChanSender = UnboundedSender<Message>;
+struct PeerWriter {
+    addr: SocketAddr,
+    outbound: bool,
+    genesis_id: &'static BlockID,
+    peer_store: Arc<PeerStorageDisk>,
+    block_store: Arc<BlockStorageDisk>,
+    ledger: Arc<LedgerDisk>,
+    processor: Arc<Processor>,
+    tx_queue: Arc<TransactionQueueMemory>,
+    filter: Arc<RwLock<Option<CuckooFilter<DefaultHasher>>>>,
+    read_limit: Arc<AtomicU32>,
+    ws_sender: WsSink,
+    out_chan_rx: Receiver<Message>,
+    on_connect_chan_rx: Receiver<bool>,
+    get_work_chan_rx: Receiver<GetWorkMessage>,
+    submit_work_chan_rx: Receiver<SubmitWorkMessage>,
+    work: Option<PeerWork>,
+    pub_keys: Vec<PublicKey>,
+    memo: Option<String>,
+}
+
+type OutChanSender = Sender<Message>;
 
 /// Timing constants
 /// Time allowed to wait for WebSocket connection
@@ -137,6 +160,404 @@ const DOWNLOAD_QUEUE_MAX: usize = MAX_BLOCKS_PER_INV * 10;
 
 pub const PEER_ADDR_SELF: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 0);
 
+impl PeerWriter {
+    async fn run(mut self) -> Result<(), PeerError> {
+        // register to hear about tip block changes
+        let (tip_change_chan_tx, mut tip_change_chan_rx) = channel(TIP_CHANGE_CHAN_CAPACITY);
+        self.processor
+            .register_for_tip_change(tip_change_chan_tx.clone());
+
+        // register to hear about new transactions
+        let (new_tx_chan_tx, mut new_tx_chan_rx) =
+            channel(MAX_TRANSACTIONS_TO_INCLUDE_PER_BLOCK as usize);
+        self.processor
+            .register_for_new_transactions(new_tx_chan_tx.clone());
+
+        let result = self
+            .run_registered(&mut tip_change_chan_rx, &mut new_tx_chan_rx)
+            .await;
+
+        self.processor.unregister_for_tip_change(tip_change_chan_tx);
+        self.processor
+            .unregister_for_new_transactions(new_tx_chan_tx);
+
+        result
+    }
+
+    async fn run_registered(
+        &mut self,
+        tip_change_chan_rx: &mut Receiver<crate::processor::TipChange>,
+        new_tx_chan_rx: &mut Receiver<crate::processor::NewTx>,
+    ) -> Result<(), PeerError> {
+        // send the peer pings
+        let mut ticker_ping = interval_at(Instant::now() + PING_PERIOD, PING_PERIOD);
+
+        // update the peer store with the peer's connectivity
+        let mut ticker_peer_store_refresh = interval_at(
+            Instant::now() + PEER_STORAGE_REFRESH_PERIOD,
+            PEER_STORAGE_REFRESH_PERIOD,
+        );
+
+        // request new peer addresses
+        let mut ticker_get_peer_addresses = interval_at(
+            Instant::now() + GET_PEER_ADDRESSES_PERIOD,
+            GET_PEER_ADDRESSES_PERIOD,
+        );
+
+        // check to see if we need to update work for miners
+        let interval = Duration::from_secs(30);
+        let mut ticker_update_work_check = interval_at(Instant::now() + interval, interval);
+
+        loop {
+            tokio::select! {
+                msg = self.out_chan_rx.recv() => {
+                    match msg {
+                        Some(message) => {
+                            self.send_message(message).await?;
+                        }
+                        None => {
+                            Peer::send_with_timeout(self.addr, &mut self.ws_sender, WsMessage::Close(None)).await?;
+                            break Ok(())
+                        }
+                    }
+                }
+
+                Some(tip) = tip_change_chan_rx.recv() => {
+                    // update read limit if necessary
+                    self.update_read_limit()?;
+
+                    if tip.connect && !tip.more {
+                        // only build off newly connected tip blocks.
+                        // create and send out new work if necessary
+                        self.create_new_work_block(&tip.block_id, &tip.block.header).await?;
+                    }
+
+                    if tip.source == self.addr {
+                        continue
+                    }
+
+                    if tip.connect {
+                        // new tip announced, notify the peer
+                        let inv = Message::InvBlock(InvBlockMessage {
+                            block_ids: vec![tip.block_id]
+                        });
+                        self.send_message(inv).await?;
+                    }
+
+                    // potentially create a filter_block
+                    let fb = match self.create_filter_block(tip.block_id, tip.block).await {
+                        Ok(Some(v)) => v,
+                        Ok(None) => continue,
+                        Err(err) => {
+                            error!("{:?}, to: {}", err, self.addr);
+                            continue
+                        }
+                    };
+
+                    // send it
+                    let transactions_len = fb.transactions.len();
+
+                    let (message, r#type) = if !tip.connect {
+                        (Message::FilterBlockUndo(fb), "filter_block_undo")
+                    } else {
+                        (Message::FilterBlock(fb), "filter_block")
+                    };
+
+                    info!("Sending {} with {} transaction(s), to: {}", r#type, transactions_len, self.addr);
+                    self.send_message(message).await?;
+                }
+
+                Some(new_tx) = new_tx_chan_rx.recv() => {
+                    if new_tx.source == self.addr {
+                        // this is who sent it to us
+                        continue
+                    }
+
+                    let interested = {
+                        let filter = self.filter.read().await;
+                        Peer::filter_lookup(filter.as_ref(), &new_tx.transaction)
+                    };
+                    if !interested {
+                        continue
+                    }
+
+                    // newly verified transaction announced, relay to peer
+                    let push_tx = Message::PushTransaction(PushTransactionMessage {
+                        transaction: new_tx.transaction,
+                    });
+                    self.send_message(push_tx).await?;
+                }
+
+                Some(_) = self.on_connect_chan_rx.recv() => {
+                    // send a new peer a request to find a common ancestor
+                    self.send_find_common_ancestor(None).await?;
+
+                    // send a get_peer_addresses to request peers
+                    info!("Sending get_peer_addresses to: {}", self.addr);
+                    self.send_message(Message::GetPeerAddresses).await?;
+                }
+
+                Some(gw) = self.get_work_chan_rx.recv() => {
+                    if let Err(err) = self.on_get_work(gw).await {
+                        error!("{:?}, from: {}", err, self.addr);
+                    }
+                }
+
+                Some(sw) = self.submit_work_chan_rx.recv() => {
+                    if let Err(err) = self.on_submit_work(sw).await {
+                        error!("{:?}, from: {}", err, self.addr);
+                    }
+                }
+
+                _ = ticker_ping.tick() => {
+                    Peer::send_with_timeout(self.addr, &mut self.ws_sender, WsMessage::Ping(Bytes::new())).await?;
+                }
+
+                _ = ticker_peer_store_refresh.tick(), if self.outbound => {
+                    // periodically refresh our connection time
+                    if let Err(err) = self.peer_store.on_connect_success(self.addr).map_err(PeerError::PeerStorage) {
+                        error!("{:?}, from: {}", err, self.addr);
+                    }
+                }
+
+                _ = ticker_get_peer_addresses.tick() => {
+                    // periodically send a get_peer_addresses
+                    info!("Sending get_peer_addresses to: {}", self.addr);
+                    self.send_message(Message::GetPeerAddresses).await?;
+                }
+
+                _ = ticker_update_work_check.tick(), if self.work.is_some() => {
+                    let work = self.work.as_ref().expect("work should exist");
+                    let tx_count = work.work_block.transactions.len();
+                    if tx_count == MAX_TRANSACTIONS_TO_INCLUDE_PER_BLOCK as usize {
+                        // already at capacity
+                        continue
+                    }
+                    if tx_count - 1 != self.tx_queue.len() {
+                        let Some((tip_id, tip_header, _tip_when)) = Processor::get_chain_tip_header(&self.ledger, &self.block_store)? else {
+                            break Err(LedgerNotFoundError::ChainTip.into())
+                        };
+                        self.create_new_work_block(&tip_id, &tip_header).await?;
+                    }
+                }
+
+            }
+        }
+    }
+
+    async fn send_message(&mut self, message: Message) -> Result<(), PeerError> {
+        let json = serde_json::to_string(&message).map_err(JsonError::Serialize)?;
+        Peer::send_with_timeout(self.addr, &mut self.ws_sender, WsMessage::text(json)).await?;
+        Ok(())
+    }
+
+    async fn send_find_common_ancestor(
+        &mut self,
+        start_id: Option<BlockID>,
+    ) -> Result<(), PeerError> {
+        if let Some(message) = Peer::find_common_ancestor_message(
+            self.addr,
+            self.genesis_id,
+            &self.ledger,
+            &self.block_store,
+            start_id,
+        )? {
+            self.send_message(message).await?;
+        }
+        Ok(())
+    }
+
+    async fn create_filter_block(
+        &self,
+        id: BlockID,
+        block: Block,
+    ) -> Result<Option<FilterBlockMessage>, PeerError> {
+        let filter = self.filter.read().await;
+        let Some(filter) = filter.as_ref() else {
+            // nothing to do
+            return Ok(None);
+        };
+
+        // create a filter block
+        let mut fb = FilterBlockMessage {
+            block_id: id,
+            header: block.header,
+            transactions: Vec::new(),
+        };
+
+        // filter out transactions the peer isn't interested in
+        for tx in &block.transactions {
+            if Peer::filter_lookup(Some(filter), tx) {
+                fb.transactions.push(tx.clone());
+            }
+        }
+
+        Ok(Some(fb))
+    }
+
+    /// Called when work has been received
+    async fn on_get_work(&mut self, gw: GetWorkMessage) -> Result<(), PeerError> {
+        let ok = if self.work.is_some() {
+            Err(PeerGetWorkError::WorkBlockExists)
+        } else if gw.public_keys.is_empty() {
+            Err(PeerGetWorkError::WorkBlockNoPublicKeys)
+        } else if gw.memo.len() > MAX_MEMO_LENGTH {
+            Err(PeerGetWorkError::WorkBlockMaxMemoLengthExceeded(
+                MAX_MEMO_LENGTH,
+                gw.memo.len(),
+            ))
+        } else {
+            match Processor::get_chain_tip_header(&self.ledger, &self.block_store) {
+                Ok(Some((tip_id, tip_header, _tip_when))) => {
+                    // create and send out new work
+                    self.pub_keys = gw.public_keys;
+                    self.memo = Some(gw.memo);
+                    self.create_new_work_block(&tip_id, &tip_header).await?;
+                    Ok(())
+                }
+                Ok(None) => Err(LedgerNotFoundError::ChainTipHeader.into()),
+                Err(err) => Err(PeerGetWorkError::Processor(self.addr, Box::new(err))),
+            }
+        };
+
+        if let Err(ref err) = ok {
+            self.send_message(Message::Work(WorkMessage {
+                work_id: None,
+                header: None,
+                min_time: None,
+                error: Some(err.to_string()),
+            }))
+            .await?;
+        }
+
+        ok.map_err(Into::into)
+    }
+
+    /// Create a new work block for a mining peer.
+    async fn create_new_work_block(
+        &mut self,
+        tip_id: &BlockID,
+        tip_header: &BlockHeader,
+    ) -> Result<(), PeerError> {
+        if self.pub_keys.is_empty() {
+            // peer doesn't want work
+            return Ok(());
+        }
+
+        let work_id = rand_int31();
+        let peer_work = match Processor::compute_median_timestamp(tip_header, &self.block_store)
+            .map_err(|err| PeerError::ProcessorComputingMedianTimestamp(Box::new(err)))
+        {
+            Ok(median_timestamp) => {
+                let key_index = rand::rng().random_range(0..self.pub_keys.len());
+                match Miner::create_next_block(
+                    tip_id,
+                    tip_header,
+                    &self.tx_queue,
+                    &self.block_store,
+                    &self.ledger,
+                    self.pub_keys[key_index],
+                    self.memo.clone(),
+                )
+                .map_err(|err| PeerError::MinerCreateNextWorkBlock(Box::new(err)))
+                {
+                    Ok(work_block) => Ok(PeerWork {
+                        work_id,
+                        work_block,
+                        median_timestamp,
+                    }),
+                    Err(err) => Err(err),
+                }
+            }
+            Err(err) => Err(err),
+        };
+
+        // create a new block
+        let message = match peer_work {
+            Ok(ref peer_work) => Message::Work(WorkMessage {
+                work_id: Some(peer_work.work_id),
+                header: Some(peer_work.work_block.header.clone()),
+                min_time: Some(peer_work.median_timestamp + 1),
+                error: None,
+            }),
+            Err(ref err) => Message::Work(WorkMessage {
+                work_id: Some(work_id),
+                header: None,
+                min_time: None,
+                error: Some(err.to_string()),
+            }),
+        };
+        self.send_message(message).await?;
+        self.work = peer_work.ok();
+
+        Ok(())
+    }
+
+    /// Handle a submission of mining work.
+    async fn on_submit_work(&mut self, sw: SubmitWorkMessage) -> Result<(), PeerError> {
+        let block_id = match sw.header.id() {
+            Ok(id) => {
+                if sw.work_id == 0 {
+                    Err(PeerSubmitWorkError::WorkIdMissing)
+                } else if let Some(ref mut work) = self.work {
+                    if sw.work_id != work.work_id {
+                        Err(PeerSubmitWorkError::WorkIdInvalid(work.work_id, sw.work_id))
+                    } else {
+                        work.work_block.header = sw.header;
+                        match self
+                            .processor
+                            .process_candidate_block(id, work.work_block.clone(), self.addr)
+                            .await
+                        {
+                            Ok(_) => Ok(id),
+                            Err(err) => Err(err.into()),
+                        }
+                    }
+                } else {
+                    Err(PeerSubmitWorkError::WorkIdPeerMissing)
+                }
+            }
+            Err(err) => Err(err.into()),
+        };
+
+        let message = if let Err(ref err) = block_id {
+            Message::SubmitWorkResult(SubmitWorkResultMessage {
+                work_id: sw.work_id,
+                error: Some(err.to_string()),
+            })
+        } else {
+            Message::SubmitWorkResult(SubmitWorkResultMessage {
+                work_id: sw.work_id,
+                error: None,
+            })
+        };
+        self.send_message(message).await?;
+
+        if let Err(err) = block_id {
+            Err(err.into())
+        } else {
+            Ok(())
+        }
+    }
+
+    /// Update the read limit if necessary
+    fn update_read_limit(&self) -> Result<(), PeerError> {
+        let (ok, height) = PeerManager::is_initial_block_download(&self.ledger, &self.block_store)?;
+
+        if ok {
+            // TODO: do something smarter about this
+            self.read_limit.store(0, Ordering::Relaxed);
+            return Ok(());
+        }
+
+        // transactions are <500 bytes so this gives us significant wiggle room
+        let max_transactions = Processor::compute_max_transactions_per_block(height + 1);
+        self.read_limit
+            .store(max_transactions * 1024, Ordering::Relaxed);
+        Ok(())
+    }
+}
+
 impl Peer {
     /// Returns a new instance of a peer.
     pub fn new(
@@ -152,7 +573,7 @@ impl Peer {
         addr: SocketAddr,
         shutdown_chan_rx: ShutdownChanReceiver,
     ) -> Self {
-        let mut peer = Self {
+        let peer = Self {
             conn,
             genesis_id,
             peer_store,
@@ -167,17 +588,19 @@ impl Peer {
             continuation_block_id: None,
             last_peer_addresses_received_time: None,
             outbound: false,
-            filter: None,
+            filter: Arc::new(RwLock::new(None)),
             addr_chan_tx,
             work: None,
             pub_keys: Vec::new(),
             memo: None,
-            read_limit: 0,
+            read_limit: Arc::new(AtomicU32::new(0)),
             addr,
             shutdown_chan_rx,
             shutdown_fns: Vec::new(),
         };
-        peer.update_read_limit();
+        if let Err(err) = peer.update_read_limit() {
+            error!("update_read_limit at peer construction: {err:?}");
+        }
         peer
     }
 
@@ -253,7 +676,7 @@ impl Peer {
     /// It manages reading and writing to the peer's WebSocket and facilitating the protocol.
     pub async fn run(mut self) -> Result<(), PeerError> {
         let conn = self.conn.take().expect("peer should be connected");
-        let (mut ws_sender, mut ws_receiver) = conn.split();
+        let (ws_sender, mut ws_receiver) = conn.split();
 
         // on shutdown remove any inflight blocks this peer is no longer going to download
         {
@@ -267,11 +690,11 @@ impl Peer {
             }));
         }
 
-        // channel to send outgoing messages
-        let (out_chan_tx, mut out_chan_rx) = unbounded_channel();
+        // written to by the reader loop to send outgoing messages to the writer loop
+        let (out_chan_tx, out_chan_rx) = channel(1);
 
         // send a find common ancestor request and request peer addresses shortly after connecting
-        let (on_connect_chan_tx, mut on_connect_chan_rx) = channel(1);
+        let (on_connect_chan_tx, on_connect_chan_rx) = channel(1);
         tokio::spawn(async move {
             sleep(Duration::from_secs(5)).await;
             if let Err(_err) = on_connect_chan_tx.send(true).await {
@@ -279,48 +702,9 @@ impl Peer {
             }
         });
 
-        // written to by the reader to update the current work block for the peer
-        let mut get_work_chan = channel::<GetWorkMessage>(1);
-        let mut submit_work_chan = channel::<SubmitWorkMessage>(1);
-
-        // register to hear about tip block changes
-        let (tip_change_chan_tx, mut tip_change_chan_rx) = unbounded_channel();
-        self.processor
-            .register_for_tip_change(tip_change_chan_tx.clone());
-
-        // register to hear about new transactions
-        let (new_tx_chan_tx, mut new_tx_chan_rx) =
-            channel(MAX_TRANSACTIONS_TO_INCLUDE_PER_BLOCK as usize);
-        self.processor
-            .register_for_new_transactions(new_tx_chan_tx.clone());
-
-        // unregister from the processor on shutdown
-        {
-            let processor = Arc::clone(&self.processor);
-            self.on_shutdown(Box::new(move || {
-                processor.unregister_for_tip_change(tip_change_chan_tx.clone());
-                processor.unregister_for_new_transactions(new_tx_chan_tx.clone());
-            }));
-        }
-
-        // send the peer pings
-        let mut ticker_ping = interval_at(Instant::now() + PING_PERIOD, PING_PERIOD);
-
-        // update the peer store with the peer's connectivity
-        let mut ticker_peer_store_refresh = interval_at(
-            Instant::now() + PEER_STORAGE_REFRESH_PERIOD,
-            PEER_STORAGE_REFRESH_PERIOD,
-        );
-
-        // request new peer addresses
-        let mut ticker_get_peer_addresses = interval_at(
-            Instant::now() + GET_PEER_ADDRESSES_PERIOD,
-            GET_PEER_ADDRESSES_PERIOD,
-        );
-
-        // check to see if we need to update work for miners
-        let interval = Duration::from_secs(30);
-        let mut ticker_update_work_check = interval_at(Instant::now() + interval, interval);
+        // written to by the reader loop to update the current work block for the peer
+        let (get_work_chan_tx, get_work_chan_rx) = channel::<GetWorkMessage>(1);
+        let (submit_work_chan_tx, submit_work_chan_rx) = channel::<SubmitWorkMessage>(1);
 
         // update the peer store on disconnection
         if self.outbound {
@@ -335,13 +719,47 @@ impl Peer {
             }));
         }
 
+        // writer goroutine loop
+        let mut writer_handle = tokio::spawn(
+            PeerWriter {
+                addr: self.addr,
+                outbound: self.outbound,
+                genesis_id: self.genesis_id,
+                peer_store: Arc::clone(&self.peer_store),
+                block_store: Arc::clone(&self.block_store),
+                ledger: Arc::clone(&self.ledger),
+                processor: Arc::clone(&self.processor),
+                tx_queue: Arc::clone(&self.tx_queue),
+                filter: Arc::clone(&self.filter),
+                read_limit: Arc::clone(&self.read_limit),
+                ws_sender,
+                out_chan_rx,
+                on_connect_chan_rx,
+                get_work_chan_rx,
+                submit_work_chan_rx,
+                work: self.work.take(),
+                pub_keys: std::mem::take(&mut self.pub_keys),
+                memo: self.memo.take(),
+            }
+            .run(),
+        );
+        let mut writer_completed = false;
+
         // are we syncing?
         let mut last_new_block_time = Instant::now();
         let (mut ibd, _height) =
             PeerManager::is_initial_block_download(&self.ledger, &self.block_store)?;
 
-        loop {
+        let result = loop {
             tokio::select! {
+                writer_result = &mut writer_handle => {
+                    writer_completed = true;
+                    break match writer_result {
+                        Ok(result) => result,
+                        Err(err) => Err(ChannelError::Receive("writer", err.to_string()).into()),
+                    }
+                }
+
                 msg = timeout(PONG_WAIT, ws_receiver.next()) => {
                     let message = match msg {
                         Err(err) => {
@@ -532,12 +950,12 @@ impl Peer {
                                     out_chan_tx.send(Message::TransactionRelayPolicy(TransactionRelayPolicyMessage {
                                         min_fee: MIN_FEE_CRUZBITS,
                                         min_amount: MIN_AMOUNT_CRUZBITS,
-                                    }))?;
+                                    })).await?;
                                 }
 
                                 Message::GetWork(gw) => {
                                     info!("Received get_work message, from: {}", self.addr);
-                                    get_work_chan.0.send(gw).await?;
+                                    get_work_chan_tx.send(gw).await?;
                                 }
 
                                 Message::InvBlock(inv) => {
@@ -574,7 +992,7 @@ impl Peer {
 
                                 Message::SubmitWork(sw) => {
                                     info!("Received submit_work message, from: {}", self.addr);
-                                    submit_work_chan.0.send(sw).await?;
+                                    submit_work_chan_tx.send(sw).await?;
                                 }
 
                                 _ => {
@@ -611,148 +1029,35 @@ impl Peer {
                     };
                 }
 
-                msg = out_chan_rx.recv() => {
-                    match msg {
-                        Some(message) => {
-                            let json = serde_json::to_string(&message).map_err(JsonError::Serialize)?;
-                            self.send_with_timeout(&mut ws_sender, WsMessage::text(json)).await?;
-                        },
-                        None => {
-                            // close the connection if the tx is dropped
-                            self.send_with_timeout(&mut ws_sender, WsMessage::Close(None)).await?;
-                        }
-                    }
-                }
-
-                Some(tip) = tip_change_chan_rx.recv() => {
-                    // update read limit if necessary
-                    self.update_read_limit();
-
-                    if tip.connect && !tip.more {
-                        // only build off newly connected tip blocks.
-                        // create and send out new work if necessary
-                        self.create_new_work_block(&tip.block_id, &tip.block.header, &out_chan_tx).await?;
-                    }
-
-                    if tip.source == self.addr {
-                        continue
-                    }
-
-                    if tip.connect {
-                        // new tip announced, notify the peer
-                        let inv = Message::InvBlock(InvBlockMessage {
-                            block_ids: vec![tip.block_id]
-                        });
-                        // send it
-                        let json = serde_json::to_string(&inv).map_err(JsonError::Serialize)?;
-                        self.send_with_timeout(&mut ws_sender, WsMessage::text(json)).await?;
-                    }
-
-                    // potentially create a filter_block
-                    let fb = match self.create_filter_block(tip.block_id, tip.block) {
-                        Ok(Some(v)) => v,
-                        Ok(None) => continue,
-                        Err(err) => {
-                            error!("{:?}, to: {}", err, self.addr);
-                            continue
-                        }
-                    };
-
-                    // send it
-                    let transactions_len = fb.transactions.len();
-
-                    let (message, r#type) = if !tip.connect {
-                        (Message::FilterBlockUndo(fb), "filter_block_undo")
-                    } else {
-                        (Message::FilterBlock(fb), "filter_block")
-                    };
-
-                    info!("Sending {} with {} transaction(s), to: {}", r#type, transactions_len, self.addr);
-                    let json = serde_json::to_string(&message).map_err(JsonError::Serialize)?;
-                    self.send_with_timeout(&mut ws_sender, WsMessage::text(json)).await?;
-                }
-
-                Some(new_tx) = new_tx_chan_rx.recv() => {
-                    if new_tx.source == self.addr {
-                        // this is who sent it to us
-                        continue
-                    }
-
-                    if !self.filter_lookup(&new_tx.transaction) {
-                        continue
-                    }
-
-                    // newly verified transaction announced, relay to peer
-                    let push_tx = Message::PushTransaction(PushTransactionMessage {
-                        transaction: new_tx.transaction,
-                    });
-                    let json = serde_json::to_string(&push_tx).map_err(JsonError::Serialize)?;
-                    self.send_with_timeout(&mut ws_sender, WsMessage::text(json)).await?;
-                }
-
-                Some(_) = on_connect_chan_rx.recv() => {
-                    // send a new peer a request to find a common ancestor
-                    self.send_find_common_ancestor(None, Some(&mut ws_sender), &out_chan_tx).await?;
-
-                    // send a get_peer_addresses to request peers
-                    info!("Sending get_peer_addresses to: {}", self.addr);
-                    let message = Message::GetPeerAddresses;
-                    let json = serde_json::to_string(&message).map_err(JsonError::Serialize)?;
-                    self.send_with_timeout(&mut ws_sender, WsMessage::text(json)).await?;
-                }
-
-                Some(gw) = get_work_chan.1.recv() => {
-                    if let Err(err) = self.on_get_work(gw, &out_chan_tx).await {
-                        error!("{:?}, from: {}", err, self.addr);
-                    }
-                }
-
-                Some(sw) = submit_work_chan.1.recv() => {
-                    if let Err(err) = self.on_submit_work(sw, &out_chan_tx).await {
-                        error!("{:?}, from: {}", err, self.addr);
-                    }
-                }
-
-                _ = ticker_ping.tick() => {
-                    self.send_with_timeout(&mut ws_sender, WsMessage::Ping(Bytes::new())).await?;
-                }
-
-                _ = ticker_peer_store_refresh.tick(), if self.outbound => {
-                    // periodically refresh our connection time
-                    if let Err(err) = self.peer_store.on_connect_success(self.addr).map_err(PeerError::PeerStorage) {
-                        error!("{:?}, from: {}", err, self.addr);
-                    }
-                }
-
-                _ = ticker_get_peer_addresses.tick() => {
-                    // periodically send a get_peer_addresses
-                    info!("Sending get_peer_addresses to: {}", self.addr);
-                    let message = Message::GetPeerAddresses;
-                    let json = serde_json::to_string(&message).map_err(JsonError::Serialize)?;
-                    self.send_with_timeout(&mut ws_sender, WsMessage::text(json)).await?;
-                }
-
-                _ = ticker_update_work_check.tick(), if self.work.is_some() => {
-                    let work = self.work.as_ref().expect("work should exist");
-                    let tx_count = work.work_block.transactions.len();
-                    if tx_count == MAX_TRANSACTIONS_TO_INCLUDE_PER_BLOCK as usize {
-                        // already at capacity
-                        continue
-                    }
-                    if tx_count - 1 != self.tx_queue.len() {
-                        let Some((tip_id, tip_header, _tip_when)) = Processor::get_chain_tip_header(&self.ledger, &self.block_store)? else {
-                            break Err(LedgerNotFoundError::ChainTip.into())
-                        };
-                        self.create_new_work_block(&tip_id, &tip_header, &out_chan_tx).await?;
-                    }
-                }
-
                 _ = &mut self.shutdown_chan_rx => {
-                    ws_sender.close().await.map_err(PeerConnectionError::Websocket)?;
                     break Ok(())
                 }
             }
+        };
+
+        drop(out_chan_tx);
+        drop(get_work_chan_tx);
+        drop(submit_work_chan_tx);
+
+        if !writer_completed {
+            match writer_handle.await {
+                Ok(Ok(())) => {}
+                Ok(Err(err)) => {
+                    if result.is_ok() {
+                        return Err(err);
+                    }
+                    error!("{err:?}");
+                }
+                Err(err) => {
+                    if result.is_ok() {
+                        return Err(ChannelError::Receive("writer", err.to_string()).into());
+                    }
+                    error!("{err}");
+                }
+            }
         }
+
+        result
     }
 
     /// Handle a message from a peer indicating block inventory available for download
@@ -790,9 +1095,7 @@ impl Peer {
             info!("Already processed block {id}");
             if length > 1 && index + 1 == length {
                 // we might be on a deep side chain. this will get us the next 500 blocks
-                return self
-                    .send_find_common_ancestor(Some(id), None, out_chan_tx)
-                    .await;
+                return self.send_find_common_ancestor(Some(id), out_chan_tx).await;
             }
             return Ok(());
         }
@@ -839,12 +1142,12 @@ impl Peer {
             Ok(Some(v)) => v,
             Ok(None) => {
                 // not found
-                out_chan_tx.send(Message::Block(None))?;
+                out_chan_tx.send(Message::Block(None)).await?;
                 return Err(LedgerNotFoundError::BlockIDForHeight(height).into());
             }
             Err(err) => {
                 // not found
-                out_chan_tx.send(Message::Block(None))?;
+                out_chan_tx.send(Message::Block(None)).await?;
                 return Err(err.into());
             }
         };
@@ -862,19 +1165,23 @@ impl Peer {
             Ok(Some(v)) => v,
             Ok(None) => {
                 // not found
-                out_chan_tx.send(Message::Block(Some(Box::new(BlockMessage {
-                    block_id: id,
-                    block: None,
-                }))))?;
+                out_chan_tx
+                    .send(Message::Block(Some(Box::new(BlockMessage {
+                        block_id: id,
+                        block: None,
+                    }))))
+                    .await?;
 
                 return Err(BlockStorageNotFoundError::BlockBytes(id).into());
             }
             Err(err) => {
                 // not found
-                out_chan_tx.send(Message::Block(Some(Box::new(BlockMessage {
-                    block_id: id,
-                    block: None,
-                }))))?;
+                out_chan_tx
+                    .send(Message::Block(Some(Box::new(BlockMessage {
+                        block_id: id,
+                        block: None,
+                    }))))
+                    .await?;
 
                 return Err(err.into());
             }
@@ -890,7 +1197,9 @@ impl Peer {
 
         let block_message =
             serde_json::from_slice::<BlockMessage>(&body).map_err(JsonError::Deserialize)?;
-        out_chan_tx.send(Message::Block(Some(Box::new(block_message))))?;
+        out_chan_tx
+            .send(Message::Block(Some(Box::new(block_message))))
+            .await?;
 
         // was this the last block in the inv we sent in response to a find common ancestor request?
         if let Some(ref continuation_block_id) = self.continuation_block_id {
@@ -913,9 +1222,11 @@ impl Peer {
                 };
 
                 if let Some((tip_id, _height)) = chain_tip {
-                    out_chan_tx.send(Message::InvBlock(InvBlockMessage {
-                        block_ids: vec![tip_id],
-                    }))?;
+                    out_chan_tx
+                        .send(Message::InvBlock(InvBlockMessage {
+                            block_ids: vec![tip_id],
+                        }))
+                        .await?;
                 }
             }
         }
@@ -1001,8 +1312,7 @@ impl Peer {
                 );
 
                 // send a find common ancestor request
-                self.send_find_common_ancestor(None, None, out_chan_tx)
-                    .await?;
+                self.send_find_common_ancestor(None, out_chan_tx).await?;
             }
             Err(err) => {
                 self.local_inflight_queue.remove(&id, &PEER_ADDR_SELF);
@@ -1074,9 +1384,11 @@ impl Peer {
                 "Sending get_block for {}, to: {}",
                 block_to_download, self.addr
             );
-            out_chan_tx.send(Message::GetBlock(GetBlockMessage {
-                block_id: block_to_download,
-            }))?;
+            out_chan_tx
+                .send(Message::GetBlock(GetBlockMessage {
+                    block_id: block_to_download,
+                }))
+                .await?;
         }
 
         if queued > 0 {
@@ -1097,26 +1409,44 @@ impl Peer {
     }
 
     /// Send a message to look for a common ancestor with a peer
-    /// Might be called from reader or writer context. sender means we're in the writer context
     async fn send_find_common_ancestor(
         &self,
-        mut start_id: Option<BlockID>,
-        ws_sender: Option<&mut WsSink>,
+        start_id: Option<BlockID>,
         out_chan_tx: &OutChanSender,
     ) -> Result<(), PeerError> {
-        info!("Sending find_common_ancestor to: {}", self.addr);
+        if let Some(message) = Self::find_common_ancestor_message(
+            self.addr,
+            self.genesis_id,
+            &self.ledger,
+            &self.block_store,
+            start_id,
+        )? {
+            out_chan_tx.send(message).await?;
+        }
+
+        Ok(())
+    }
+
+    fn find_common_ancestor_message(
+        addr: SocketAddr,
+        genesis_id: &'static BlockID,
+        ledger: &LedgerDisk,
+        block_store: &BlockStorageDisk,
+        mut start_id: Option<BlockID>,
+    ) -> Result<Option<Message>, PeerError> {
+        info!("Sending find_common_ancestor to: {addr}");
 
         let mut height = match start_id {
             Some(id) => {
-                let Some((header, _when)) = self.block_store.get_block_header(&id)? else {
+                let Some((header, _when)) = block_store.get_block_header(&id)? else {
                     info!("No header for block {id}");
-                    return Ok(());
+                    return Ok(None);
                 };
                 header.height
             }
             None => {
-                let Some((id_tip, height_tip)) = self.ledger.get_chain_tip()? else {
-                    return Ok(());
+                let Some((id_tip, height_tip)) = ledger.get_chain_tip()? else {
+                    return Ok(None);
                 };
                 start_id = Some(id_tip);
                 height_tip
@@ -1127,7 +1457,7 @@ impl Peer {
         let mut ids = Vec::new();
         let mut step = 1;
         while let Some(id) = block_id {
-            if id == *self.genesis_id {
+            if id == *genesis_id {
                 break;
             }
             ids.push(id);
@@ -1135,15 +1465,14 @@ impl Peer {
                 break;
             }
             let depth = height - step;
-            block_id = match self
-                .ledger
+            block_id = match ledger
                 .get_block_id_for_height(depth)
                 .map_err(PeerError::Ledger)
             {
                 Ok(v) => v,
                 Err(err) => {
                     error!("{err:?}");
-                    return Ok(());
+                    return Ok(None);
                 }
             };
             if ids.len() > 10 {
@@ -1151,20 +1480,11 @@ impl Peer {
             }
             height = depth;
         }
-        ids.push(*self.genesis_id);
-        let message = Message::FindCommonAncestor(FindCommonAncestorMessage { block_ids: ids });
+        ids.push(*genesis_id);
 
-        // send immediately if the sender is passed in
-        if let Some(ws_sender) = ws_sender {
-            let json = serde_json::to_string(&message).map_err(JsonError::Serialize)?;
-            self.send_with_timeout(ws_sender, WsMessage::text(json))
-                .await
-                .map_err(PeerError::PeerConnection)?;
-            return Ok(());
-        }
-        out_chan_tx.send(message)?;
-
-        Ok(())
+        Ok(Some(Message::FindCommonAncestor(
+            FindCommonAncestorMessage { block_ids: ids },
+        )))
     }
 
     /// Handle a find common ancestor message from a peer
@@ -1223,7 +1543,9 @@ impl Peer {
             );
             self.continuation_block_id = Some(continuation_block_id);
 
-            out_chan_tx.send(Message::InvBlock(InvBlockMessage { block_ids: ids }))?;
+            out_chan_tx
+                .send(Message::InvBlock(InvBlockMessage { block_ids: ids }))
+                .await?;
         }
 
         Ok(true)
@@ -1254,12 +1576,12 @@ impl Peer {
             Ok(Some(v)) => v,
             Ok(None) => {
                 // not found
-                out_chan_tx.send(Message::BlockHeader(None))?;
+                out_chan_tx.send(Message::BlockHeader(None)).await?;
                 return Err(LedgerNotFoundError::BlockIDForHeight(height).into());
             }
             Err(err) => {
                 // not found
-                out_chan_tx.send(Message::BlockHeader(None))?;
+                out_chan_tx.send(Message::BlockHeader(None)).await?;
                 return Err(err.into());
             }
         };
@@ -1276,32 +1598,38 @@ impl Peer {
             Ok(Some(v)) => v,
             Ok(None) => {
                 // not found
-                out_chan_tx.send(Message::BlockHeader(Some(BlockHeaderMessage {
-                    block_id,
-                    block_header: None,
-                })))?;
+                out_chan_tx
+                    .send(Message::BlockHeader(Some(BlockHeaderMessage {
+                        block_id,
+                        block_header: None,
+                    })))
+                    .await?;
 
                 return Err(BlockStorageNotFoundError::BlockHeader(block_id).into());
             }
             Err(err) => {
                 // not found
-                out_chan_tx.send(Message::BlockHeader(Some(BlockHeaderMessage {
-                    block_id,
-                    block_header: None,
-                })))?;
+                out_chan_tx
+                    .send(Message::BlockHeader(Some(BlockHeaderMessage {
+                        block_id,
+                        block_header: None,
+                    })))
+                    .await?;
 
                 return Err(err.into());
             }
         };
-        out_chan_tx.send(Message::BlockHeader(Some(BlockHeaderMessage {
-            block_id,
-            block_header: Some(header),
-        })))?;
+        out_chan_tx
+            .send(Message::BlockHeader(Some(BlockHeaderMessage {
+                block_id,
+                block_header: Some(header),
+            })))
+            .await?;
 
         Ok(())
     }
 
-    /// Handle a request for a public key's balancep
+    /// Handle a request for a public key's balance
     async fn on_get_balance(
         &self,
         pub_key: PublicKey,
@@ -1313,13 +1641,15 @@ impl Peer {
             match self.ledger.get_public_key_balances(vec![pub_key]) {
                 Ok(v) => v,
                 Err(err) => {
-                    out_chan_tx.send(Message::Balance(BalanceMessage {
-                        block_id: None,
-                        height: None,
-                        public_key: Some(pub_key),
-                        balance: None,
-                        error: Some(err.to_string()),
-                    }))?;
+                    out_chan_tx
+                        .send(Message::Balance(BalanceMessage {
+                            block_id: None,
+                            height: None,
+                            public_key: Some(pub_key),
+                            balance: None,
+                            error: Some(err.to_string()),
+                        }))
+                        .await?;
 
                     return Err(err.into());
                 }
@@ -1330,13 +1660,15 @@ impl Peer {
             balance = bal;
         }
 
-        out_chan_tx.send(Message::Balance(BalanceMessage {
-            block_id: Some(tip_id),
-            height: Some(tip_height),
-            public_key: Some(pub_key),
-            balance: Some(balance),
-            error: None,
-        }))?;
+        out_chan_tx
+            .send(Message::Balance(BalanceMessage {
+                block_id: Some(tip_id),
+                height: Some(tip_height),
+                public_key: Some(pub_key),
+                balance: Some(balance),
+                error: None,
+            }))
+            .await?;
 
         Ok(())
     }
@@ -1356,12 +1688,14 @@ impl Peer {
         let max_public_keys = 64;
         if pub_keys.len() > max_public_keys {
             let err = PeerBalancesError::PublicKeysExceeded(max_public_keys);
-            out_chan_tx.send(Message::Balances(BalancesMessage {
-                error: Some(err.to_string()),
-                block_id: None,
-                height: None,
-                balances: None,
-            }))?;
+            out_chan_tx
+                .send(Message::Balances(BalancesMessage {
+                    error: Some(err.to_string()),
+                    block_id: None,
+                    height: None,
+                    balances: None,
+                }))
+                .await?;
 
             return Err(err.into());
         }
@@ -1369,12 +1703,14 @@ impl Peer {
         let (balances, tip_id, tip_height) = match self.ledger.get_public_key_balances(pub_keys) {
             Ok(v) => v,
             Err(err) => {
-                out_chan_tx.send(Message::Balances(BalancesMessage {
-                    block_id: None,
-                    height: None,
-                    balances: None,
-                    error: Some(err.to_string()),
-                }))?;
+                out_chan_tx
+                    .send(Message::Balances(BalancesMessage {
+                        block_id: None,
+                        height: None,
+                        balances: None,
+                        error: Some(err.to_string()),
+                    }))
+                    .await?;
                 return Err(err.into());
             }
         };
@@ -1386,12 +1722,14 @@ impl Peer {
                 balance,
             });
         }
-        out_chan_tx.send(Message::Balances(BalancesMessage {
-            block_id: Some(tip_id),
-            height: Some(tip_height),
-            balances: Some(pub_key_balances),
-            error: None,
-        }))?;
+        out_chan_tx
+            .send(Message::Balances(BalancesMessage {
+                block_id: Some(tip_id),
+                height: Some(tip_height),
+                balances: Some(pub_key_balances),
+                error: None,
+            }))
+            .await?;
 
         Ok(())
     }
@@ -1424,16 +1762,18 @@ impl Peer {
             ) {
                 Ok(v) => v,
                 Err(err) => {
-                    out_chan_tx.send(Message::PublicKeyTransactions(
-                        PublicKeyTransactionsMessage {
-                            public_key: None,
-                            start_height: None,
-                            stop_height: None,
-                            stop_index: None,
-                            filter_blocks: None,
-                            error: Some(err.to_string()),
-                        },
-                    ))?;
+                    out_chan_tx
+                        .send(Message::PublicKeyTransactions(
+                            PublicKeyTransactionsMessage {
+                                public_key: None,
+                                start_height: None,
+                                stop_height: None,
+                                stop_index: None,
+                                filter_blocks: None,
+                                error: Some(err.to_string()),
+                            },
+                        ))
+                        .await?;
 
                     return Err(err.into());
                 }
@@ -1485,16 +1825,18 @@ impl Peer {
             };
         }
 
-        out_chan_tx.send(Message::PublicKeyTransactions(
-            PublicKeyTransactionsMessage {
-                public_key: Some(pub_key),
-                start_height: Some(start_height),
-                stop_height: Some(stop_height),
-                stop_index: Some(stop_index),
-                filter_blocks: Some(fbs),
-                error: None,
-            },
-        ))?;
+        out_chan_tx
+            .send(Message::PublicKeyTransactions(
+                PublicKeyTransactionsMessage {
+                    public_key: Some(pub_key),
+                    start_height: Some(start_height),
+                    stop_height: Some(stop_height),
+                    stop_index: Some(stop_index),
+                    filter_blocks: Some(fbs),
+                    error: None,
+                },
+            ))
+            .await?;
 
         Ok(())
     }
@@ -1514,23 +1856,27 @@ impl Peer {
             Ok(Some(v)) => v,
             Ok(None) => {
                 // not found
-                out_chan_tx.send(Message::Transaction(TransactionMessage {
-                    block_id: None,
-                    height: None,
-                    transaction_id: tx_id,
-                    transaction: None,
-                }))?;
+                out_chan_tx
+                    .send(Message::Transaction(TransactionMessage {
+                        block_id: None,
+                        height: None,
+                        transaction_id: tx_id,
+                        transaction: None,
+                    }))
+                    .await?;
 
                 return Err(LedgerNotFoundError::TransactionAtIndex(tx_id).into());
             }
             Err(err) => {
                 // not found
-                out_chan_tx.send(Message::Transaction(TransactionMessage {
-                    block_id: None,
-                    height: None,
-                    transaction_id: tx_id,
-                    transaction: None,
-                }))?;
+                out_chan_tx
+                    .send(Message::Transaction(TransactionMessage {
+                        block_id: None,
+                        height: None,
+                        transaction_id: tx_id,
+                        transaction: None,
+                    }))
+                    .await?;
 
                 return Err(err.into());
             }
@@ -1540,12 +1886,14 @@ impl Peer {
             Ok((Some(tx), header)) => (tx, header),
             Ok((None, header)) => {
                 // odd case but send back what we know at least
-                out_chan_tx.send(Message::Transaction(TransactionMessage {
-                    block_id: Some(block_id),
-                    height: Some(header.height),
-                    transaction_id: tx_id,
-                    transaction: None,
-                }))?;
+                out_chan_tx
+                    .send(Message::Transaction(TransactionMessage {
+                        block_id: Some(block_id),
+                        height: Some(header.height),
+                        transaction_id: tx_id,
+                        transaction: None,
+                    }))
+                    .await?;
 
                 return Err(
                     BlockStorageNotFoundError::TransactionAtBlockIndex(block_id, index).into(),
@@ -1553,23 +1901,27 @@ impl Peer {
             }
             Err(err) => {
                 // odd case but send back what we know at least
-                out_chan_tx.send(Message::Transaction(TransactionMessage {
-                    block_id: Some(block_id),
-                    height: None,
-                    transaction_id: tx_id,
-                    transaction: None,
-                }))?;
+                out_chan_tx
+                    .send(Message::Transaction(TransactionMessage {
+                        block_id: Some(block_id),
+                        height: None,
+                        transaction_id: tx_id,
+                        transaction: None,
+                    }))
+                    .await?;
 
                 return Err(err.into());
             }
         };
 
-        out_chan_tx.send(Message::Transaction(TransactionMessage {
-            block_id: Some(block_id),
-            height: Some(block_header.height),
-            transaction_id: tx_id,
-            transaction: Some(tx),
-        }))?;
+        out_chan_tx
+            .send(Message::Transaction(TransactionMessage {
+                block_id: Some(block_id),
+                height: Some(block_header.height),
+                transaction_id: tx_id,
+                transaction: Some(tx),
+            }))
+            .await?;
 
         Ok(())
     }
@@ -1582,20 +1934,22 @@ impl Peer {
                 Ok(Some(v)) => v,
                 Ok(None) => {
                     // shouldn't be possible
-                    out_chan_tx.send(Message::TipHeader(None))?;
+                    out_chan_tx.send(Message::TipHeader(None)).await?;
                     return Err(LedgerNotFoundError::ChainTipHeader.into());
                 }
                 Err(err) => {
                     // shouldn't be possible
-                    out_chan_tx.send(Message::TipHeader(None))?;
+                    out_chan_tx.send(Message::TipHeader(None)).await?;
                     return Err(err.into());
                 }
             };
-        out_chan_tx.send(Message::TipHeader(Some(TipHeaderMessage {
-            block_id: tip_id,
-            block_header: tip_header,
-            time_seen: tip_when,
-        })))?;
+        out_chan_tx
+            .send(Message::TipHeader(Some(TipHeaderMessage {
+                block_id: tip_id,
+                block_header: tip_header,
+                time_seen: tip_when,
+            })))
+            .await?;
 
         Ok(())
     }
@@ -1609,12 +1963,14 @@ impl Peer {
         let id = match tx.id() {
             Ok(v) => v,
             Err(err) => {
-                out_chan_tx.send(Message::PushTransactionResult(
-                    PushTransactionResultMessage {
-                        transaction_id: None,
-                        error: Some(err.to_string()),
-                    },
-                ))?;
+                out_chan_tx
+                    .send(Message::PushTransactionResult(
+                        PushTransactionResultMessage {
+                            transaction_id: None,
+                            error: Some(err.to_string()),
+                        },
+                    ))
+                    .await?;
                 return Err(err.into());
             }
         };
@@ -1633,12 +1989,14 @@ impl Peer {
             }
         };
 
-        out_chan_tx.send(Message::PushTransactionResult(
-            PushTransactionResultMessage {
-                transaction_id: Some(id),
-                error: err_str,
-            },
-        ))?;
+        out_chan_tx
+            .send(Message::PushTransactionResult(
+                PushTransactionResultMessage {
+                    transaction_id: Some(id),
+                    error: err_str,
+                },
+            ))
+            .await?;
 
         Ok(())
     }
@@ -1658,9 +2016,11 @@ impl Peer {
         // check filter type
         if filter_type != "cuckoo" {
             let err = PeerFilterError::TypeUnsupported(filter_type);
-            out_chan_tx.send(Message::FilterResult(Some(FilterResultMessage {
-                error: err.to_string(),
-            })))?;
+            out_chan_tx
+                .send(Message::FilterResult(Some(FilterResultMessage {
+                    error: err.to_string(),
+                })))
+                .await?;
 
             return Err(err.into());
         }
@@ -1669,9 +2029,11 @@ impl Peer {
         let max_size = 1 << 16;
         if exported_filter.length > max_size {
             let err = PeerFilterError::SizeExceeded(max_size);
-            out_chan_tx.send(Message::FilterResult(Some(FilterResultMessage {
-                error: err.to_string(),
-            })))?;
+            out_chan_tx
+                .send(Message::FilterResult(Some(FilterResultMessage {
+                    error: err.to_string(),
+                })))
+                .await?;
 
             return Err(err.into());
         }
@@ -1680,18 +2042,23 @@ impl Peer {
         let filter = CuckooFilter::<DefaultHasher>::from(exported_filter);
         if filter.is_empty() {
             let err = PeerFilterError::CreateFailed;
-            out_chan_tx.send(Message::FilterResult(Some(FilterResultMessage {
-                error: err.to_string(),
-            })))?;
+            out_chan_tx
+                .send(Message::FilterResult(Some(FilterResultMessage {
+                    error: err.to_string(),
+                })))
+                .await?;
 
             return Err(err.into());
         }
 
         // set the filter
-        self.filter = Some(filter);
+        {
+            let mut current_filter = self.filter.write().await;
+            *current_filter = Some(filter);
+        }
 
         // send the empty result
-        out_chan_tx.send(Message::FilterResult(None))?;
+        out_chan_tx.send(Message::FilterResult(None)).await?;
 
         Ok(())
     }
@@ -1712,28 +2079,33 @@ impl Peer {
         let max_public_keys = 256;
         if pub_keys.len() > max_public_keys {
             let err = PeerFilterError::PublicKeysExceeded(max_public_keys);
-            out_chan_tx.send(Message::FilterResult(Some(FilterResultMessage {
-                error: err.to_string(),
-            })))?;
+            out_chan_tx
+                .send(Message::FilterResult(Some(FilterResultMessage {
+                    error: err.to_string(),
+                })))
+                .await?;
             return Err(err.into());
         }
 
         // set the filter if it's not set
-        let ok: Result<(), PeerFilterError> = (|| {
-            if self.filter.is_none() {
-                self.filter = Some(CuckooFilter::with_capacity(1 << 16));
+        let ok: Result<(), PeerFilterError> = {
+            let mut current_filter = self.filter.write().await;
+            if current_filter.is_none() {
+                *current_filter = Some(CuckooFilter::with_capacity(1 << 16));
             }
-            let filter = self.filter.as_mut().expect("filter should exist");
+            let filter = current_filter.as_mut().expect("filter should exist");
 
             // perform the inserts
+            let mut result = Ok(());
             for pub_key in pub_keys {
                 if filter.add(&pub_key).is_err() {
-                    return Err(PeerFilterError::InsertFailed);
+                    result = Err(PeerFilterError::InsertFailed);
+                    break;
                 }
             }
 
-            Ok(())
-        })();
+            result
+        };
 
         // send the result
         let message = if let Err(err) = ok {
@@ -1743,7 +2115,7 @@ impl Peer {
         } else {
             Message::FilterResult(None)
         };
-        out_chan_tx.send(message)?;
+        out_chan_tx.send(message).await?;
 
         Ok(())
     }
@@ -1755,33 +2127,36 @@ impl Peer {
     ) -> Result<(), PeerError> {
         info!("Received get_filter_transaction_queue, from: {}", self.addr);
 
-        let message = if self.filter.is_none() {
-            Message::FilterTransactionQueue(FilterTransactionQueueMessage {
-                transactions: None,
-                error: Some(FilterTransactionQueueError::FilterMissing.to_string()),
-            })
-        } else {
-            let transactions = self.tx_queue.get(0);
-            let mut ftq_transactions = Vec::new();
-            for tx in transactions {
-                if self.filter_lookup(&tx) {
-                    ftq_transactions.push(tx);
+        let message = {
+            let filter = self.filter.read().await;
+            if let Some(filter) = filter.as_ref() {
+                let transactions = self.tx_queue.get(0);
+                let mut ftq_transactions = Vec::new();
+                for tx in transactions {
+                    if Self::filter_lookup(Some(filter), &tx) {
+                        ftq_transactions.push(tx);
+                    }
                 }
+                Message::FilterTransactionQueue(FilterTransactionQueueMessage {
+                    transactions: Some(ftq_transactions),
+                    error: None,
+                })
+            } else {
+                Message::FilterTransactionQueue(FilterTransactionQueueMessage {
+                    transactions: None,
+                    error: Some(FilterTransactionQueueError::FilterMissing.to_string()),
+                })
             }
-            Message::FilterTransactionQueue(FilterTransactionQueueMessage {
-                transactions: Some(ftq_transactions),
-                error: None,
-            })
         };
-        out_chan_tx.send(message)?;
+        out_chan_tx.send(message).await?;
 
         Ok(())
     }
 
     /// Returns true if the transaction is of interest to the peer
-    fn filter_lookup(&self, tx: &Transaction) -> bool {
-        match self.filter {
-            Some(ref filter) => {
+    fn filter_lookup(filter: Option<&CuckooFilter<DefaultHasher>>, tx: &Transaction) -> bool {
+        match filter {
+            Some(filter) => {
                 if !tx.is_coinbase()
                     && filter.contains(&tx.from.expect("transaction should have a sender"))
                 {
@@ -1792,34 +2167,6 @@ impl Peer {
             }
             None => true,
         }
-    }
-
-    /// Called from the writer context
-    fn create_filter_block(
-        &self,
-        id: BlockID,
-        block: Block,
-    ) -> Result<Option<FilterBlockMessage>, PeerError> {
-        if self.filter.is_none() {
-            // nothing to do
-            return Ok(None);
-        }
-
-        // create a filter block
-        let mut fb = FilterBlockMessage {
-            block_id: id,
-            header: block.header,
-            transactions: Vec::new(),
-        };
-
-        // filter out transactions the peer isn't interested in
-        for tx in &block.transactions {
-            if self.filter_lookup(tx) {
-                fb.transactions.push(tx.clone());
-            }
-        }
-
-        Ok(Some(fb))
     }
 
     /// Received a request for peer addresses
@@ -1837,7 +2184,9 @@ impl Peer {
             .collect::<Vec<_>>();
 
         if !addresses.is_empty() {
-            out_chan_tx.send(Message::PeerAddresses(PeerAddressesMessage { addresses }))?;
+            out_chan_tx
+                .send(Message::PeerAddresses(PeerAddressesMessage { addresses }))
+                .await?;
         }
 
         Ok(())
@@ -1878,186 +2227,31 @@ impl Peer {
         Ok(())
     }
 
-    /// Called when work has been received
-    async fn on_get_work(
-        &mut self,
-        gw: GetWorkMessage,
-        out_chan_tx: &OutChanSender,
-    ) -> Result<(), PeerError> {
-        let ok = if self.work.is_some() {
-            Err(PeerGetWorkError::WorkBlockExists)
-        } else if gw.public_keys.is_empty() {
-            Err(PeerGetWorkError::WorkBlockNoPublicKeys)
-        } else if gw.memo.len() > MAX_MEMO_LENGTH {
-            Err(PeerGetWorkError::WorkBlockMaxMemoLengthExceeded(
-                MAX_MEMO_LENGTH,
-                gw.memo.len(),
-            ))
-        } else {
-            match Processor::get_chain_tip_header(&self.ledger, &self.block_store) {
-                Ok(Some((tip_id, tip_header, _tip_when))) => {
-                    // create and send out new work
-                    self.pub_keys = gw.public_keys;
-                    self.memo = Some(gw.memo);
-                    self.create_new_work_block(&tip_id, &tip_header, out_chan_tx)
-                        .await?;
-                    Ok(())
-                }
-                Ok(None) => Err(LedgerNotFoundError::ChainTipHeader.into()),
-                Err(err) => Err(PeerGetWorkError::Processor(self.addr, Box::new(err))),
-            }
-        };
-
-        if let Err(ref err) = ok {
-            out_chan_tx.send(Message::Work(WorkMessage {
-                work_id: None,
-                header: None,
-                min_time: None,
-                error: Some(err.to_string()),
-            }))?;
-        }
-
-        ok.map_err(Into::into)
-    }
-
-    /// Create a new work block for a mining peer.
-    async fn create_new_work_block(
-        &mut self,
-        tip_id: &BlockID,
-        tip_header: &BlockHeader,
-        out_chan_tx: &OutChanSender,
-    ) -> Result<(), PeerError> {
-        if self.pub_keys.is_empty() {
-            // peer doesn't want work
-            return Ok(());
-        }
-
-        let work_id = rand_int31();
-        let peer_work = match Processor::compute_median_timestamp(tip_header, &self.block_store)
-            .map_err(|err| PeerError::ProcessorComputingMedianTimestamp(Box::new(err)))
-        {
-            Ok(median_timestamp) => {
-                let key_index = rand::rng().random_range(0..self.pub_keys.len());
-                match Miner::create_next_block(
-                    tip_id,
-                    tip_header,
-                    &self.tx_queue,
-                    &self.block_store,
-                    &self.ledger,
-                    self.pub_keys[key_index],
-                    self.memo.clone(),
-                )
-                .map_err(|err| PeerError::MinerCreateNextWorkBlock(Box::new(err)))
-                {
-                    Ok(work_block) => Ok(PeerWork {
-                        work_id,
-                        work_block,
-                        median_timestamp,
-                    }),
-                    Err(err) => Err(err),
-                }
-            }
-            Err(err) => Err(err),
-        };
-
-        // create a new block
-        let message = match peer_work {
-            Ok(ref peer_work) => Message::Work(WorkMessage {
-                work_id: Some(peer_work.work_id),
-                header: Some(peer_work.work_block.header.clone()),
-                min_time: Some(peer_work.median_timestamp + 1),
-                error: None,
-            }),
-            Err(ref err) => Message::Work(WorkMessage {
-                work_id: Some(work_id),
-                header: None,
-                min_time: None,
-                error: Some(err.to_string()),
-            }),
-        };
-        out_chan_tx.send(message)?;
-        self.work = peer_work.ok();
-
-        Ok(())
-    }
-
-    /// Handle a submission of mining work.
-    async fn on_submit_work(
-        &mut self,
-        sw: SubmitWorkMessage,
-        out_chan_tx: &OutChanSender,
-    ) -> Result<(), PeerError> {
-        let block_id = if sw.work_id == 0 {
-            Err(PeerSubmitWorkError::WorkIdMissing)
-        } else {
-            match sw.header.id() {
-                Ok(id) => {
-                    if let Some(ref mut work) = self.work {
-                        if sw.work_id != work.work_id {
-                            Err(PeerSubmitWorkError::WorkIdInvalid(work.work_id, sw.work_id))
-                        } else {
-                            work.work_block.header = sw.header;
-                            match self
-                                .processor
-                                .process_candidate_block(id, work.work_block.clone(), self.addr)
-                                .await
-                            {
-                                Ok(_) => Ok(id),
-                                Err(err) => Err(err.into()),
-                            }
-                        }
-                    } else {
-                        Err(PeerSubmitWorkError::WorkIdPeerMissing)
-                    }
-                }
-                Err(err) => Err(err.into()),
-            }
-        };
-
-        let message = if let Err(ref err) = block_id {
-            Message::SubmitWorkResult(SubmitWorkResultMessage {
-                work_id: sw.work_id,
-                error: Some(err.to_string()),
-            })
-        } else {
-            Message::SubmitWorkResult(SubmitWorkResultMessage {
-                work_id: sw.work_id,
-                error: None,
-            })
-        };
-        out_chan_tx.send(message)?;
-
-        if let Err(err) = block_id {
-            Err(err.into())
-        } else {
-            Ok(())
-        }
-    }
-
     /// Update the read limit if necessary
-    fn update_read_limit(&mut self) {
-        let (ok, height) = PeerManager::is_initial_block_download(&self.ledger, &self.block_store)
-            .unwrap_or_else(|err| panic!("{err:?}"));
+    fn update_read_limit(&self) -> Result<(), PeerError> {
+        let (ok, height) = PeerManager::is_initial_block_download(&self.ledger, &self.block_store)?;
 
         if ok {
             // TODO: do something smarter about this
-            self.read_limit = 0;
-            return;
+            self.read_limit.store(0, Ordering::Relaxed);
+            return Ok(());
         }
 
         // transactions are <500 bytes so this gives us significant wiggle room
         let max_transactions = Processor::compute_max_transactions_per_block(height + 1);
-        self.read_limit = max_transactions * 1024;
+        self.read_limit
+            .store(max_transactions * 1024, Ordering::Relaxed);
+        Ok(())
     }
 
     /// Send outgoing messages with a write timeout period
     async fn send_with_timeout(
-        &self,
+        addr: SocketAddr,
         ws_sender: &mut WsSink,
         message: WsMessage,
     ) -> Result<(), PeerConnectionError> {
         match timeout(WRITE_WAIT, ws_sender.send(message)).await {
-            Err(err) => Err(PeerConnectionError::Timeout(self.addr, err)),
+            Err(err) => Err(PeerConnectionError::Timeout(addr, err)),
             Ok(Err(err)) => Err(err.into()),
             _ => Ok(()),
         }

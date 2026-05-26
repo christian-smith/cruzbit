@@ -7,7 +7,7 @@ use log::{error, info};
 use rand::RngExt;
 use thiserror::Error;
 use tokio::runtime::Handle;
-use tokio::sync::mpsc::{Receiver, Sender, channel, unbounded_channel};
+use tokio::sync::mpsc::{Receiver, Sender, channel};
 use tokio::task::JoinHandle;
 
 use crate::block::{Block, BlockError, BlockHeader, BlockID};
@@ -175,7 +175,7 @@ impl Miner {
         }
 
         // Register for tip changes to the processor
-        let (tip_change_chan_tx, mut tip_change_chan_rx) = unbounded_channel();
+        let (tip_change_chan_tx, mut tip_change_chan_rx) = channel(1);
         self.processor
             .register_for_tip_change(tip_change_chan_tx.clone());
 

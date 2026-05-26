@@ -43,9 +43,12 @@ use crate::transaction_queue::{TransactionQueue, TransactionQueueError};
 use crate::transaction_queue_memory::TransactionQueueMemory;
 use crate::utils::now_as_secs;
 
-pub type TipChangeSenderChan = UnboundedSender<TipChange>;
-pub type TipChangeReceiverChan = UnboundedReceiver<TipChange>;
+pub type TipChangeSenderChan = Sender<TipChange>;
+pub type TipChangeReceiverChan = Receiver<TipChange>;
 pub type TipChangeChan = (TipChangeSenderChan, TipChangeReceiverChan);
+
+pub const TIP_CHANGE_CHAN_CAPACITY: usize = 10;
+
 type TipChangeChanChan = (
     UnboundedSender<TipChangeSenderChan>,
     Mutex<Option<UnboundedReceiver<TipChangeSenderChan>>>,
@@ -1201,6 +1204,7 @@ impl Processor {
                     connect: false,
                     more: false,
                 })
+                .await
                 .map_err(ProcessorError::from)
             {
                 error!("{err:?}");
@@ -1241,6 +1245,7 @@ impl Processor {
                     connect: true,
                     more,
                 })
+                .await
                 .map_err(ProcessBlockError::from)
             {
                 error!("{err:?}");
