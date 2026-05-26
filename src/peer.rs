@@ -649,6 +649,9 @@ impl Peer {
         .await
         {
             Err(err) => {
+                if let Err(err) = self.peer_store.on_connect_failure(self.addr) {
+                    error!("{:?}, to: {}", err, self.addr);
+                }
                 return Err(PeerConnectionError::Timeout(self.addr, err));
             }
             Ok(Ok(v)) => v,
@@ -657,11 +660,17 @@ impl Peer {
                     if response.status() == StatusCode::TOO_MANY_REQUESTS {
                         // the peer is already connected to us inbound.
                         // mark it successful so we try it again in the future.
-                        self.peer_store.on_connect_success(self.addr)?;
-                        self.peer_store.on_disconnect(self.addr)?;
-                    } else {
-                        self.peer_store.on_connect_failure(self.addr)?;
+                        if let Err(err) = self.peer_store.on_connect_success(self.addr) {
+                            error!("{:?}, to: {}", err, self.addr);
+                        }
+                        if let Err(err) = self.peer_store.on_disconnect(self.addr) {
+                            error!("{:?}, to: {}", err, self.addr);
+                        }
+                    } else if let Err(err) = self.peer_store.on_connect_failure(self.addr) {
+                        error!("{:?}, to: {}", err, self.addr);
                     }
+                } else if let Err(err) = self.peer_store.on_connect_failure(self.addr) {
+                    error!("{:?}, to: {}", err, self.addr);
                 }
 
                 return Err(PeerConnectionError::Connect(self.addr, err));
