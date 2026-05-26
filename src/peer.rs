@@ -45,7 +45,9 @@ use crate::miner::{Miner, MinerError};
 use crate::peer_manager::{AddrChanSender, PeerManager, PeerManagerError};
 use crate::peer_storage::{PeerStorage, PeerStorageError};
 use crate::peer_storage_disk::PeerStorageDisk;
-use crate::processor::{ProcessBlockError, Processor, ProcessorError, TIP_CHANGE_CHAN_CAPACITY};
+use crate::processor::{
+    ProcessBlockError, ProcessTransactionError, Processor, ProcessorError, TIP_CHANGE_CHAN_CAPACITY,
+};
 use crate::protocol::{
     BalanceMessage, BalancesMessage, BlockHeaderMessage, BlockMessage, FilterBlockMessage,
     FilterResultMessage, FilterTransactionQueueMessage, FindCommonAncestorMessage, GetBlockMessage,
@@ -514,7 +516,7 @@ impl PeerWriter {
                         }
                     }
                 } else {
-                    Err(PeerSubmitWorkError::WorkIdPeerMissing)
+                    Err(PeerSubmitWorkError::WorkIdInvalid(0, sw.work_id))
                 }
             }
             Err(err) => Err(err.into()),
@@ -943,7 +945,8 @@ impl Peer {
 
                                 Message::GetTransactionResult(ptr) => {
                                     if let Some(err) = ptr.error {
-                                        error!("{:?}, from: {}", err, self.addr);}
+                                        error!("{:?}, from: {}", err, self.addr);
+                                    }
                                 }
 
                                 Message::GetTransactionRelayPolicy => {
@@ -996,7 +999,8 @@ impl Peer {
                                 }
 
                                 _ => {
-                                    error!("Unknown message: {}, from: {}", message, self.addr);}
+                                    error!("Unknown message: {}, from: {}", message, self.addr);
+                                }
                             }
                         }
 
@@ -1978,6 +1982,7 @@ impl Peer {
         info!("Received push_transaction: {}, from: {}", id, self.addr);
 
         // process the transaction if this is the first time we've seen it
+        let mut result = Ok(());
         let mut err_str = None;
         if !self.tx_queue.exists(&id) {
             if let Err(err) = self
@@ -1985,7 +1990,8 @@ impl Peer {
                 .process_candidate_transaction(&id, &tx, &self.addr)
                 .await
             {
-                err_str = Some(format!("{err:?}"));
+                err_str = Some(err.to_string());
+                result = Err(err);
             }
         };
 
@@ -1998,7 +2004,7 @@ impl Peer {
             ))
             .await?;
 
-        Ok(())
+        result.map_err(Into::into)
     }
 
     /// Handle a request to set a transaction filter for the connection
@@ -2339,6 +2345,8 @@ pub enum PeerError {
     PeerStorage(#[from] PeerStorageError),
     #[error("processing block")]
     ProcessBlock(#[source] Box<ProcessBlockError>),
+    #[error("processing transaction")]
+    ProcessTransaction(#[source] Box<ProcessTransactionError>),
     #[error("processor")]
     Processor(#[from] ProcessorError),
     #[error("transaction")]
@@ -2350,6 +2358,7 @@ impl_debug_error_chain!(PeerError, "peer");
 impl_box_error_from!(PeerError, PeerGetWork, PeerGetWorkError);
 impl_box_error_from!(PeerError, PeerSubmitWork, PeerSubmitWorkError);
 impl_box_error_from!(PeerError, ProcessBlock, ProcessBlockError);
+impl_box_error_from!(PeerError, ProcessTransaction, ProcessTransactionError);
 
 impl From<tokio::sync::mpsc::error::SendError<GetWorkMessage>> for PeerError {
     fn from(err: tokio::sync::mpsc::error::SendError<GetWorkMessage>) -> Self {
@@ -2425,9 +2434,9 @@ pub enum PeerFilterError {
     InsertFailed,
     #[error("Too many public keys, limit: {0}")]
     PublicKeysExceeded(usize),
-    #[error("Filter too large, max {0}")]
+    #[error("Filter too large, max: {0}")]
     SizeExceeded(usize),
-    #[error("Unsupported filter type {0}")]
+    #[error("Unsupported filter type: {0}")]
     TypeUnsupported(String),
 }
 
@@ -2451,12 +2460,10 @@ pub enum PeerGetWorkError {
 /// Error type associated with cruzbit protocol messages
 #[derive(Error, Debug)]
 pub enum PeerSubmitWorkError {
-    #[error("Unexpected work id {0}, found {1}")]
+    #[error("Expected work ID {0}, found {1}")]
     WorkIdInvalid(u32, u32),
     #[error("No work id set")]
     WorkIdMissing,
-    #[error("No work id set on peer")]
-    WorkIdPeerMissing,
 
     #[error("block id")]
     Block(#[from] BlockError),
