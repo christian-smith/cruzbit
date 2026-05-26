@@ -51,7 +51,7 @@ use crate::processor::{
 use crate::protocol::{
     BalanceMessage, BalancesMessage, BlockHeaderMessage, BlockMessage, FilterBlockMessage,
     FilterResultMessage, FilterTransactionQueueMessage, FindCommonAncestorMessage, GetBlockMessage,
-    GetWorkMessage, InvBlockMessage, Message, PeerAddressesMessage, PublicKeyBalance,
+    GetWorkMessage, InvBlockMessage, Message, PROTOCOL, PeerAddressesMessage, PublicKeyBalance,
     PublicKeyTransactionsMessage, PushTransactionMessage, PushTransactionResultMessage,
     SubmitWorkMessage, SubmitWorkResultMessage, TipHeaderMessage, TransactionMessage,
     TransactionRelayPolicyMessage, WorkMessage,
@@ -616,6 +616,9 @@ impl Peer {
         info!("Connecting to {url}");
 
         let mut request = url.into_client_request()?;
+        request
+            .headers_mut()
+            .insert("Sec-WebSocket-Protocol", PROTOCOL.parse()?);
         request
             .headers_mut()
             .append("Cruzbit-Peer-Nonce", nonce.to_string().parse()?);

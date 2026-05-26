@@ -819,12 +819,21 @@ impl HttpServer {
         // handle incoming connection upgrade requests
         let callback = |request: &Request, mut response: Response| {
             // append our protocol header
-            response.headers_mut().append(
-                header::SEC_WEBSOCKET_PROTOCOL,
-                PROTOCOL
-                    .parse()
-                    .expect("websocket protocol failed to parse"),
-            );
+            if request
+                .headers()
+                .get_all(header::SEC_WEBSOCKET_PROTOCOL)
+                .iter()
+                .filter_map(|value| value.to_str().ok())
+                .flat_map(|value| value.split(','))
+                .any(|value| value.trim() == PROTOCOL)
+            {
+                response.headers_mut().append(
+                    header::SEC_WEBSOCKET_PROTOCOL,
+                    PROTOCOL
+                        .parse()
+                        .expect("websocket protocol failed to parse"),
+                );
+            }
 
             // is it banned?
             if self
