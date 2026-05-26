@@ -698,9 +698,11 @@ impl Peer {
         // send a find common ancestor request and request peer addresses shortly after connecting
         let (on_connect_chan_tx, on_connect_chan_rx) = channel(1);
         tokio::spawn(async move {
-            sleep(Duration::from_secs(5)).await;
-            if let Err(_err) = on_connect_chan_tx.send(true).await {
-                error!("failed to send on-connect, peer must have shut down");
+            tokio::select! {
+                _ = sleep(Duration::from_secs(5)) => {
+                    let _ = on_connect_chan_tx.send(true).await;
+                }
+                _ = on_connect_chan_tx.closed() => {}
             }
         });
 
