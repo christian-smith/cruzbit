@@ -2048,16 +2048,6 @@ impl Peer {
 
         // decode it
         let filter = CuckooFilter::<DefaultHasher>::from(exported_filter);
-        if filter.is_empty() {
-            let err = PeerFilterError::CreateFailed;
-            out_chan_tx
-                .send(Message::FilterResult(Some(FilterResultMessage {
-                    error: err.to_string(),
-                })))
-                .await?;
-
-            return Err(err.into());
-        }
 
         // set the filter
         {
@@ -2430,8 +2420,6 @@ pub enum PeerBalancesError {
 /// Error type associated with cruzbit protocol messages
 #[derive(Error, Debug)]
 pub enum PeerFilterError {
-    #[error("Failed to create filter")]
-    CreateFailed,
     #[error("Unable to insert into filter")]
     InsertFailed,
     #[error("Too many public keys, limit: {0}")]
