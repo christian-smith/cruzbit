@@ -382,7 +382,15 @@ impl PeerManager {
 
         // try to satisfy desired outbound peer count
         while need > 0 {
-            let addrs = self.peer_store.get(need)?;
+            let mut addrs = self.peer_store.get(need)?;
+            if addrs.is_empty() {
+                addrs = self.peer_store.get_unconnected(need)?;
+                if !addrs.is_empty() {
+                    info!(
+                        "Retrying peer addresses early because outbound connections are below target"
+                    );
+                }
+            }
             if addrs.is_empty() {
                 // no more attempts possible at the moment
                 info!("No more peer addresses to try right now");

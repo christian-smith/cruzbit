@@ -90,6 +90,38 @@ impl PeerStorageDisk {
 
         connected_peers
     }
+
+    /// Returns unconnected peers without applying retry backoff
+    pub(crate) fn get_unconnected(
+        &self,
+        count: usize,
+    ) -> Result<Vec<SocketAddr>, PeerStorageError> {
+        let start_key = compute_last_attempt_time_key(Duration::ZERO, None);
+        let end_key = compute_last_attempt_time_key(now_as_duration(), None);
+        let mut addrs = Vec::new();
+
+        let connected_peers = self.get_connected_peers();
+
+        let snapshot = self.db.snapshot();
+        let iter = snapshot
+            .keys_iter(&ReadOptions::new())
+            .from(&start_key)
+            .to(&end_key);
+
+        for key in iter {
+            let (_when, addr) = decode_last_attempt_time_key(&key)?;
+            if connected_peers.contains_key(&addr) {
+                continue;
+            }
+
+            addrs.push(addr);
+            if addrs.len() == count {
+                break;
+            }
+        }
+
+        Ok(addrs)
+    }
 }
 
 impl PeerStorage for PeerStorageDisk {
@@ -414,6 +446,7 @@ fn decode_peer_info(encoded: Vec<u8>) -> Result<PeerInfo, PeerStorageError> {
 #[cfg(test)]
 mod test {
     use faster_hex::hex_string;
+    use tempfile::tempdir;
 
     use super::*;
     use crate::peer::PEER_ADDR_SELF;
@@ -475,5 +508,36 @@ mod test {
         let key = compute_peer_key(addr);
         assert_eq!(key[0], PEER_PREFIX);
         assert_eq!(key[1..], addr.to_string().as_bytes()[..]);
+    }
+
+    #[test]
+    fn test_get_unconnected_ignores_retry_backoff_but_not_connected_peers() {
+        let temp_dir = tempdir().unwrap();
+        let store = PeerStorageDisk::new(temp_dir.path().join("peers.db")).unwrap();
+        let addr = SocketAddr::from(([203, 0, 113, 1], 8831));
+        let now = now_as_duration();
+        let last_attempt = now - Duration::from_secs(60);
+        let info = PeerInfo {
+            first_seen: now,
+            last_attempt,
+            last_success: Duration::ZERO,
+        };
+
+        let batch = WriteBatch::new();
+        info.write_to_batch(addr, &batch).unwrap();
+        batch.put_u8(
+            &compute_last_attempt_time_key(last_attempt, Some(addr)),
+            &[0x1],
+        );
+        store.db.write(&WriteOptions::new(), &batch).unwrap();
+
+        assert!(store.get(1).unwrap().is_empty());
+        assert_eq!(store.get_unconnected(1).unwrap(), vec![addr]);
+
+        store.on_connect_success(addr).unwrap();
+        assert!(store.get_unconnected(1).unwrap().is_empty());
+
+        store.on_disconnect(addr).unwrap();
+        assert_eq!(store.get_unconnected(1).unwrap(), vec![addr]);
     }
 }
