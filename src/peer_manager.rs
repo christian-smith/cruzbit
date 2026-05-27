@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::collections::hash_map::Entry;
 use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
 use std::str::{FromStr, from_utf8};
@@ -15,7 +14,7 @@ use thiserror::Error;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::mpsc::{Receiver, Sender, channel};
-use tokio::task::JoinHandle;
+use tokio::task::{JoinHandle, JoinSet};
 use tokio::time::{Instant, interval_at, sleep_until, timeout};
 use tokio_rustls::rustls::ServerConfig;
 use tokio_rustls::rustls::pki_types::ServerName;
@@ -74,8 +73,8 @@ pub struct PeerManager {
     irc: bool,
     dns_seed: bool,
     ban_map: &'static HashMap<String, bool>,
-    in_peers: RwLock<HashMap<SocketAddr, Shutdown>>,
-    in_peer_count_by_host: RwLock<HashMap<SocketAddr, usize>>,
+    in_peers: RwLock<HashMap<SocketAddr, Option<Shutdown>>>,
+    in_peer_count_by_host: RwLock<HashMap<IpAddr, usize>>,
     out_peers: RwLock<HashMap<SocketAddr, Shutdown>>,
     addr_chan: AddrChan,
     peer_nonce: u32,
@@ -293,6 +292,19 @@ impl PeerManager {
 
     /// Shutdown peers, http server and irc
     pub async fn shutdown(&self) {
+        self.accepting.store(false, Ordering::Relaxed);
+
+        // stop sources of new peers first
+        let server_shutdown = self.server_shutdown.lock().unwrap().take();
+        if let Some(server_shutdown) = server_shutdown {
+            server_shutdown.send().await;
+        }
+
+        let irc_shutdown = self.irc_shutdown.lock().unwrap().take();
+        if let Some(irc_shutdown) = irc_shutdown {
+            irc_shutdown.send().await;
+        }
+
         let mut shutdowns = Vec::new();
 
         // collect all outbound connected peers
@@ -310,22 +322,12 @@ impl PeerManager {
             let mut in_peers = self.in_peers.write().unwrap();
             in_peers
                 .drain()
-                .map(|(_addr, shutdown)| shutdown)
+                .filter_map(|(_addr, shutdown)| shutdown)
                 .collect::<Vec<_>>()
         };
         shutdowns.extend(in_peers);
 
-        // collect http server shutdown if it's running
-        if let Some(server_shutdown) = self.server_shutdown.lock().unwrap().take() {
-            shutdowns.push(server_shutdown);
-        }
-
-        // collect irc shutdown if it's running
-        if let Some(irc_shutdown) = self.irc_shutdown.lock().unwrap().take() {
-            shutdowns.push(irc_shutdown)
-        }
-
-        // shut everything down
+        // shut peers down
         for shutdown in shutdowns {
             shutdown.send().await;
         }
@@ -420,7 +422,7 @@ impl PeerManager {
                 }
             }
             count = self.outbound_peer_count();
-            need = want - count;
+            need = want.saturating_sub(count);
         }
 
         info!("Have {count} outbound connections. Done trying new peer addresses");
@@ -497,6 +499,8 @@ impl PeerManager {
         self.accepting.store(true, Ordering::Relaxed);
         if let Err(err) = self.accept_connections() {
             error!("{err:?}");
+            self.accepting.store(false, Ordering::Relaxed);
+            return Ok(());
         }
 
         // give us some time to generate a certificate and start listening
@@ -585,38 +589,48 @@ impl PeerManager {
         info!("Outbound peer count: {}", out_peers.len());
     }
 
-    /// Helper to check if in peers will fit
-    fn check_inbound_set(&self, addr: SocketAddr) -> bool {
-        let in_peers = self.in_peers.read().unwrap();
+    /// Reserves an inbound peer slot if one is available.
+    fn reserve_inbound_set(&self, addr: SocketAddr) -> bool {
+        let mut in_peers = self.in_peers.write().unwrap();
         if in_peers.len() == self.inbound_limit {
             // too many connections
             return false;
         }
-        if in_peers.get(&addr).is_some() {
+        if in_peers.contains_key(&addr) {
             // already connected
             return false;
         }
 
-        true
-    }
-
-    /// Helper to add peers to the inbound set if they'll fit
-    fn add_to_inbound_set(&self, addr: SocketAddr, shutdown: Shutdown) -> bool {
         // update the count for this IP
         let mut in_peer_count_by_host = self.in_peer_count_by_host.write().unwrap();
-        match in_peer_count_by_host.get_mut(&addr) {
+        let host = addr.ip();
+        if !addr_is_reserved(&addr)
+            && in_peer_count_by_host
+                .get(&host)
+                .is_some_and(|count| *count >= MAX_INBOUND_PEER_CONNECTIONS_FROM_SAME_HOST)
+        {
+            return false;
+        }
+        match in_peer_count_by_host.get_mut(&host) {
             Some(count) => {
                 *count += 1;
             }
             None => {
-                in_peer_count_by_host.insert(addr, 1);
+                in_peer_count_by_host.insert(host, 1);
             }
         }
-        let mut in_peers = self.in_peers.write().unwrap();
-        in_peers.insert(addr, shutdown);
+        in_peers.insert(addr, None);
         info!("Inbound peer count: {}", in_peers.len());
 
         true
+    }
+
+    /// Adds a shutdown handle to a reserved inbound peer slot.
+    fn add_to_inbound_set(&self, addr: SocketAddr, shutdown: Shutdown) {
+        let mut in_peers = self.in_peers.write().unwrap();
+        if let Some(entry) = in_peers.get_mut(&addr) {
+            *entry = Some(shutdown);
+        }
     }
 
     /// Helper to check if a peer address exists in the outbound set
@@ -641,12 +655,13 @@ impl PeerManager {
         }
 
         let mut in_peer_count_by_host = self.in_peer_count_by_host.write().unwrap();
-        if let Entry::Occupied(mut count) = in_peer_count_by_host.entry(*addr) {
-            *count.get_mut() -= 1;
-            if *count.get() == 0 {
-                count.remove_entry();
+        let host = addr.ip();
+        if let Some(count) = in_peer_count_by_host.get_mut(&host) {
+            *count -= 1;
+            if *count == 0 {
+                in_peer_count_by_host.remove(&host);
             }
-        };
+        }
     }
 
     /// Drop a random peer. Used by seeders.
@@ -791,16 +806,33 @@ impl HttpServer {
                 return Ok(());
             }
         };
-        loop {
+        // Track handshake tasks so shutdown can stop them before peers drain.
+        let mut handlers = JoinSet::new();
+        let result = loop {
             tokio::select! {
                 Ok((stream, remote_addr)) = listener.accept() => {
                     let server_config = Arc::clone(&self.server_config);
+                    let peer_manager = Arc::clone(&self.peer_manager);
 
-                    if let Ok(tls_stream) = TlsAcceptor::from(server_config).accept(stream).await {
-                        if let Err(err) = self.handle_connection(tls_stream, remote_addr).await {
-                            error!("{err:?}");
-                            continue;
+                    handlers.spawn(async move {
+                        match TlsAcceptor::from(server_config).accept(stream).await {
+                            Ok(tls_stream) => {
+                                if let Err(err) =
+                                    Self::handle_connection(peer_manager, tls_stream, remote_addr).await
+                                {
+                                    error!("{err:?}");
+                                }
+                            }
+                            Err(err) => {
+                                error!("{err:?}");
+                            }
                         }
+                    });
+                }
+
+                Some(res) = handlers.join_next(), if !handlers.is_empty() => {
+                    if let Err(err) = res {
+                        error!("handler task: {err:?}");
                     }
                 }
 
@@ -808,11 +840,21 @@ impl HttpServer {
                     break Ok(())
                 }
             }
+        };
+        // Cancel handshakes before the listener loop returns.
+        handlers.abort_all();
+        while let Some(res) = handlers.join_next().await {
+            if let Err(err) = res
+                && !err.is_cancelled()
+            {
+                error!("handler task: {err:?}");
+            }
         }
+        result
     }
 
     async fn handle_connection(
-        &self,
+        peer_manager: Arc<PeerManager>,
         tls_stream: TlsStream<TcpStream>,
         remote_addr: SocketAddr,
     ) -> Result<(), HttpServerError> {
@@ -836,8 +878,7 @@ impl HttpServer {
             }
 
             // is it banned?
-            if self
-                .peer_manager
+            if peer_manager
                 .ban_map
                 .get(&remote_addr.ip().to_string())
                 .is_some()
@@ -848,7 +889,7 @@ impl HttpServer {
             }
 
             // check the connection limit for this peer address
-            if !self.check_host_connection_limit(&remote_addr) {
+            if !Self::check_host_connection_limit(&peer_manager, &remote_addr) {
                 info!(
                     "Too many connections from this peer's host: {}",
                     &remote_addr
@@ -866,7 +907,7 @@ impl HttpServer {
                 {
                     Ok(nonce_str) => {
                         match nonce_str.parse::<u32>().map_err(ParsingError::Integer) {
-                            Ok(nonce) if nonce == self.peer_manager.peer_nonce => {
+                            Ok(nonce) if nonce == peer_manager.peer_nonce => {
                                 info!("Received connection with our own nonce");
                                 *response.status_mut() = StatusCode::LOOP_DETECTED;
                                 return Ok(response);
@@ -894,8 +935,7 @@ impl HttpServer {
                 }) {
                     Ok(header_addr_str) => {
                         // validate the address
-                        match self
-                            .peer_manager
+                        match peer_manager
                             .validate_peer_address(header_addr_str.to_owned())
                             .map_err(HttpServerError::PeerValidation)
                         {
@@ -917,14 +957,14 @@ impl HttpServer {
 
             if let Some(addr) = header_addr {
                 // see if we're already connected outbound to them
-                if self.peer_manager.exists_in_outbound_set(&addr) {
+                if peer_manager.exists_in_outbound_set(&addr) {
                     info!("Already connected to {addr}, dropping inbound connection");
                     // write back error reply
                     *response.status_mut() = StatusCode::TOO_MANY_REQUESTS;
                     return Ok(response);
                 } else {
                     // save their address for later use
-                    if let Err(err) = self.peer_manager.peer_store.store(addr) {
+                    if let Err(err) = peer_manager.peer_store.store(addr) {
                         info!("Error saving peer: {}, address: {}", err, &addr);
                     }
                 }
@@ -941,52 +981,55 @@ impl HttpServer {
             }
         };
 
+        if !peer_manager.accepting.load(Ordering::Relaxed) {
+            return Ok(());
+        }
+
+        if !peer_manager.reserve_inbound_set(remote_addr) {
+            return Ok(());
+        }
+
         let (shutdown_chan_tx, shutdown_chan_rx) = shutdown_channel();
         let mut peer = Peer::new(
             Some(EitherWebSocketStream::Right(conn)),
-            self.peer_manager.genesis_id,
-            Arc::clone(&self.peer_manager.peer_store),
-            Arc::clone(&self.peer_manager.block_store),
-            Arc::clone(&self.peer_manager.ledger),
-            Arc::clone(&self.peer_manager.processor),
-            Arc::clone(&self.peer_manager.tx_queue),
-            Arc::clone(&self.peer_manager.block_queue),
-            self.peer_manager.addr_chan.0.clone(),
+            peer_manager.genesis_id,
+            Arc::clone(&peer_manager.peer_store),
+            Arc::clone(&peer_manager.block_store),
+            Arc::clone(&peer_manager.ledger),
+            Arc::clone(&peer_manager.processor),
+            Arc::clone(&peer_manager.tx_queue),
+            Arc::clone(&peer_manager.block_queue),
+            peer_manager.addr_chan.0.clone(),
             remote_addr,
             shutdown_chan_rx,
         );
 
-        if !self.peer_manager.check_inbound_set(remote_addr) {
-            return Ok(());
-        }
-
-        let peer_manager = Arc::clone(&self.peer_manager);
+        let peer_manager_for_shutdown = Arc::clone(&peer_manager);
         peer.on_shutdown(move || {
-            peer_manager.remove_from_inbound_set(&remote_addr);
+            peer_manager_for_shutdown.remove_from_inbound_set(&remote_addr);
         });
 
         info!("New peer connection from: {}", &remote_addr);
         let handle = peer.spawn();
         let shutdown = Shutdown::new(handle, shutdown_chan_tx);
-        self.peer_manager.add_to_inbound_set(remote_addr, shutdown);
+        peer_manager.add_to_inbound_set(remote_addr, shutdown);
 
         Ok(())
     }
 
     /// Returns false if this host has too many inbound connections already.
-    fn check_host_connection_limit(&self, addr: &SocketAddr) -> bool {
+    fn check_host_connection_limit(peer_manager: &PeerManager, addr: &SocketAddr) -> bool {
         // filter out local networks
         if addr_is_reserved(addr) {
             // no limit for loopback peers
             return true;
         }
 
-        match self
-            .peer_manager
+        match peer_manager
             .in_peer_count_by_host
             .read()
             .unwrap()
-            .get(addr)
+            .get(&addr.ip())
         {
             Some(count) => *count < MAX_INBOUND_PEER_CONNECTIONS_FROM_SAME_HOST,
             None => true,
