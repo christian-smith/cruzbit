@@ -106,8 +106,8 @@ async fn run() -> Result<(), ClientError> {
         "A memo to include in newly mined blocks",
         "string",
     );
-    opts.optflag("", "noaccept", "Disable inbound peer connections");
-    opts.optflag("", "noirc", "Disable use of IRC for peer discovery");
+    opts.optflagopt("", "noaccept", "Disable inbound peer connections", "bool");
+    opts.optflagopt("", "noirc", "Disable use of IRC for peer discovery", "bool");
     opts.optopt("", "numminers", "Number of miners to run", "int");
     opts.optopt("", "peer", "Address of a peer to connect to", "string");
     opts.optopt(
@@ -162,8 +162,20 @@ async fn run() -> Result<(), ClientError> {
         .opt_get_default("inlimit", MAX_INBOUND_PEER_CONNECTIONS)
         .map_err(|_| "inlimit should be a number")?;
     let key_file = matches.opt_str("keyfile").map(PathBuf::from);
-    let no_accept = !matches.opt_present("noaccept");
-    let no_irc = matches.opt_present("noirc");
+    let no_accept = match matches.opt_str("noaccept") {
+        Some(value) => value
+            .parse::<bool>()
+            .map_err(|_| "noaccept should be true or false")?,
+        None => matches.opt_present("noaccept"),
+    };
+    let accept = !no_accept;
+    let no_irc = match matches.opt_str("noirc") {
+        Some(value) => value
+            .parse::<bool>()
+            .map_err(|_| "noirc should be true or false")?,
+        None => true,
+    };
+    let irc = !no_irc;
     let num_miners = matches
         .opt_get_default("numminers", 1)
         .map_err(|_| "numminers should be a number")?;
@@ -326,7 +338,7 @@ async fn run() -> Result<(), ClientError> {
     let my_external_ip = determine_external_ip().await;
     let mut my_external_ip_upnp = None;
 
-    if upnp && !no_accept {
+    if upnp && accept {
         info!("Enabling forwarding for port {port}...");
         match igd::search_gateway(Default::default()) {
             Err(ref err) => info!("Failed to enable forwarding: {err}"),
@@ -389,9 +401,9 @@ async fn run() -> Result<(), ClientError> {
         key_path,
         port,
         inbound_limit,
-        no_accept,
+        accept,
         ban_map,
-        no_irc,
+        irc,
         dns_seed,
         open,
         shutdown_chan_rx,
