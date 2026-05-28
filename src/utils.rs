@@ -36,7 +36,7 @@ pub fn resolve_host(host: &str) -> Result<SocketAddr, ParsingError> {
 
 /// Determine if an ip address is in the reserved space
 pub fn addr_is_reserved(socket_addr: &SocketAddr) -> bool {
-    match socket_addr.ip() {
+    match socket_addr.ip().to_canonical() {
         IpAddr::V4(v4) => {
             // 127.0.0.0/8
             v4.is_loopback()
@@ -48,12 +48,54 @@ pub fn addr_is_reserved(socket_addr: &SocketAddr) -> bool {
             || v4.is_unspecified()
         }
         IpAddr::V6(v6) => {
-            v6.is_loopback() // ::1/128
+            // ::1/128
+            v6.is_loopback()
+            // fc00::/7
+            || v6.is_unique_local()
+            // fe80::/10
+            || v6.is_unicast_link_local()
+        }
+    }
+}
 
-            // fc00::/7 (nightly only)
-            // || v6.is_unique_local()
-            // fe80::/10 (nightly only)
-            // || v6.is_unicast_link_local()
+#[cfg(test)]
+mod test {
+    use std::net::SocketAddr;
+
+    use super::addr_is_reserved;
+
+    #[test]
+    fn test_addr_is_reserved_matches_go_private_blocks() {
+        for addr in [
+            "127.0.0.1:8831",
+            "10.0.0.1:8831",
+            "172.16.0.1:8831",
+            "192.168.0.1:8831",
+            "[::1]:8831",
+            "[fe80::1]:8831",
+            "[fc00::1]:8831",
+            // IPv4-mapped IPv6 uses the IPv4 reserved-address rules
+            "[::ffff:10.0.0.1]:8831",
+            "[::ffff:127.0.0.1]:8831",
+            "[::ffff:192.168.0.1]:8831",
+            "[::ffff:172.16.0.1]:8831",
+        ] {
+            assert!(
+                addr_is_reserved(&addr.parse::<SocketAddr>().unwrap()),
+                "expected reserved: {addr}"
+            );
+        }
+
+        for addr in [
+            "8.8.8.8:8831",
+            "[2001:4860:4860::8888]:8831",
+            // IPv4-mapped public IPv4 remains allowed
+            "[::ffff:8.8.8.8]:8831",
+        ] {
+            assert!(
+                !addr_is_reserved(&addr.parse::<SocketAddr>().unwrap()),
+                "expected NOT reserved: {addr}"
+            );
         }
     }
 }
