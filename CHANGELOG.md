@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-05-31
+
+### Added
+- Added a checkpoint at height 230000 and advanced the latest checkpoint height.
+
+### Changed
+- Migrated the crate to Rust 2024 and raised the minimum supported Rust version to 1.88.0.
+- Updated dependencies, including `rand` 0.10 and `sha3` 0.12.
+- Split peer WebSocket reading and writing into separate async loops.
+
+### Fixed
+- Peer handling now preserves outbound dial errors while recording failed connection attempts.
+- Peer shutdown now drains protocol messages, cancels deferred tasks, and ignores expected closed-write errors before closing.
+- Peer connections now negotiate the WebSocket subprotocol consistently for outbound and inbound handshakes.
+- Empty cuckoo filters are accepted when they decode successfully.
+- Submitted work and pushed transaction error paths now match the reference behavior.
+- Inbound peer handling now avoids reservation leaks during shutdown and failed handshakes.
+- Peer retry fallback now attempts disconnected peers before reporting that no peer addresses are available.
+- Boolean command-line flags now parse bare flags and explicit values correctly.
+- IPv4-mapped IPv6 peer addresses are now checked against reserved IPv4 ranges.
+
 ## [1.2.0] - 2026-05-24
 
 ### Fixed
