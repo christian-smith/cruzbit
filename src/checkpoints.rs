@@ -9,7 +9,7 @@ use crate::block::BlockID;
 pub const CHECKPOINTS_ENABLED: bool = true;
 
 /// Used to determine if the client is synced.
-pub const LATEST_CHECKPOINT_HEIGHT: u64 = 205780;
+pub const LATEST_CHECKPOINT_HEIGHT: u64 = 230000;
 
 /// Checkpoints are known height and block ID pairs on the main chain.
 static CHECKPOINTS: OnceLock<HashMap<u64, &str>> = OnceLock::new();
@@ -63,6 +63,10 @@ pub fn checkpoint_check(id: &BlockID, height: u64) -> Result<(), CheckpointError
                 (
                     210000,
                     "00000000566b413c4b5cc22a54b7aba008a6895ac9288ed44fd35e433b8e07fe",
+                ),
+                (
+                    230000,
+                    "00000000e224fba22c39b466126cacdad6f05908207599be646b8cab1a81269f",
                 ),
             ])
         })
