@@ -958,10 +958,10 @@ impl Processor {
             first_header = block_header;
         }
 
-        let mut actual_timespan = prev_header.time - first_header.time;
-
         let min_timespan = RETARGET_TIME / 4;
         let max_timespan = RETARGET_TIME * 4;
+        let mut actual_timespan =
+            Self::retarget_timespan_delta(prev_header.time, first_header.time, min_timespan);
 
         if actual_timespan < min_timespan {
             actual_timespan = min_timespan;
@@ -1011,7 +1011,11 @@ impl Processor {
 
         // "In order to avoid difficulty cliffs, we bound the amplitude of the
         // adjustment we are going to do to a factor in [0.5, 2]." - Bitcoin-ABC
-        let mut actual_timespan = prev_header.time - first_header.time;
+        let mut actual_timespan = Self::retarget_timespan_delta(
+            prev_header.time,
+            first_header.time,
+            (RETARGET_SMA_WINDOW / 2) * TARGET_SPACING,
+        );
         if actual_timespan > 2 * RETARGET_SMA_WINDOW * TARGET_SPACING {
             actual_timespan = 2 * RETARGET_SMA_WINDOW * TARGET_SPACING;
         } else if actual_timespan < (RETARGET_SMA_WINDOW / 2) * TARGET_SPACING {
@@ -1038,6 +1042,13 @@ impl Processor {
             BlockID::from(new_target_int)
         };
         Ok(target_id)
+    }
+
+    fn retarget_timespan_delta(prev_time: u64, first_time: u64, min_timespan: u64) -> u64 {
+        if prev_time < first_time {
+            return min_timespan;
+        }
+        prev_time - first_time
     }
 
     /// Compute the median timestamp of the last NUM_BLOCKS_FOR_MEDIAN_TIMESTAMP blocks
@@ -1658,6 +1669,13 @@ mod test {
             MAX_TRANSACTIONS_PER_BLOCK_EXCEEDED_AT_HEIGHT - 1,
             max
         );
+    }
+
+    #[test]
+    fn test_retarget_timespan_delta_matches_go_signed_subtraction() {
+        assert_eq!(Processor::retarget_timespan_delta(100, 200, 25), 25);
+        assert_eq!(Processor::retarget_timespan_delta(200, 100, 25), 100);
+        assert_eq!(Processor::retarget_timespan_delta(125, 100, 25), 25);
     }
 
     #[test]
