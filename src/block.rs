@@ -163,7 +163,7 @@ pub fn compute_chain_work(target: &BlockID, chain_work: &BlockID) -> BlockID {
 }
 
 /// Contains data used to determine block validity and its place in the block chain.
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct BlockHeader {
     pub previous: BlockID,
     pub hash_list_root: TransactionID,
@@ -218,12 +218,6 @@ impl BlockHeader {
         let this_id = self.id().unwrap_or_else(|err| panic!("{}", err));
         let their_id = their_header.id().unwrap_or_else(|err| panic!("{}", err));
         this_id.as_big_int() < their_id.as_big_int()
-    }
-}
-
-impl PartialEq for BlockHeader {
-    fn eq(&self, other: &Self) -> bool {
-        self.previous == other.previous
     }
 }
 
@@ -441,6 +435,26 @@ mod test {
     fn test_id() {
         let block = make_test_block(1);
         assert!(block.id().is_ok(), "failed to hash block id");
+    }
+
+    #[test]
+    fn test_block_header_equality_matches_go_full_struct_compare() {
+        // header equality controls processor reorg ancestry
+        let base = make_test_block(0).header;
+
+        let mut sibling = base.clone();
+        sibling.time += 1;
+        assert_ne!(base, sibling);
+
+        let mut sibling = base.clone();
+        sibling.height += 1;
+        assert_ne!(base, sibling);
+
+        let mut sibling = base.clone();
+        sibling.nonce += 1;
+        assert_ne!(base, sibling);
+
+        assert_eq!(base, base.clone());
     }
 
     #[test]
