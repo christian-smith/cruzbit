@@ -63,7 +63,7 @@ impl Transaction {
             memo,
             matures,
             expires,
-            series: Self::compute_transaction_series(from.is_some(), height),
+            series: Self::compute_transaction_series(from.is_none(), height),
             signature: None,
         }
     }
@@ -399,7 +399,7 @@ mod test {
 
     use super::*;
     use crate::block::test_utils::make_test_block;
-    use crate::constants::CRUZBITS_PER_CRUZ;
+    use crate::constants::{BLOCKS_UNTIL_NEW_SERIES, CRUZBITS_PER_CRUZ};
 
     #[test]
     fn test_id() {
@@ -551,6 +551,37 @@ mod test {
         assert!(tx.is_expired(100));
         tx.expires = Some(100);
         assert!(!tx.is_expired(100));
+    }
+
+    #[test]
+    fn test_transaction_series_matches_go_boundaries() {
+        let sender = KeyPair::generate().pk;
+        let recipient = KeyPair::generate().pk;
+        let height = BLOCKS_UNTIL_NEW_SERIES * 230;
+
+        let coinbase = Transaction::new(
+            None,
+            recipient,
+            50 * CRUZBITS_PER_CRUZ,
+            None,
+            None,
+            None,
+            height,
+            None,
+        );
+        assert_eq!(coinbase.series, 231);
+
+        let tx = Transaction::new(
+            Some(sender),
+            recipient,
+            50 * CRUZBITS_PER_CRUZ,
+            None,
+            None,
+            None,
+            height,
+            None,
+        );
+        assert_eq!(tx.series, 230);
     }
 
     #[test]
