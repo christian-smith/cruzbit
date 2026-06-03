@@ -1006,7 +1006,16 @@ impl Processor {
             return Err(BlockStorageNotFoundError::BlockHeader(first_id).into());
         };
 
-        let work_int = prev_header.chain_work.as_big_int() - first_header.chain_work.as_big_int();
+        let prev_work_int = prev_header.chain_work.as_big_int();
+        let first_work_int = first_header.chain_work.as_big_int();
+        if prev_work_int < first_work_int {
+            // avoid unsigned underflow on invalid chain work
+            let mut initial_target_bytes = BlockID::new();
+            hex_decode(INITIAL_TARGET.as_bytes(), &mut initial_target_bytes)
+                .map_err(EncodingError::HexEncode)?;
+            return Ok(initial_target_bytes);
+        }
+        let work_int = prev_work_int - first_work_int;
         let work_int = work_int * UBig::from(TARGET_SPACING);
 
         // "In order to avoid difficulty cliffs, we bound the amplitude of the
