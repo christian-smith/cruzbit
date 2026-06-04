@@ -114,6 +114,11 @@ impl TransactionQueue for TransactionQueueMemory {
     fn get(&self, limit: usize) -> Vec<Transaction> {
         let tx_queue = self.tx_queue.read().unwrap();
         let tx_map = self.tx_map.read().unwrap();
+        let limit = if limit == 0 || tx_queue.len() < limit {
+            tx_queue.len()
+        } else {
+            limit
+        };
         tx_queue
             .iter()
             .take(limit)
@@ -191,5 +196,44 @@ impl TransactionQueue for TransactionQueueMemory {
         } else {
             false
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use ed25519_compact::KeyPair;
+    use tempfile::tempdir;
+
+    use super::*;
+    use crate::block_storage_disk::BlockStorageDisk;
+
+    fn make_test_tx(amount: u64) -> Transaction {
+        let from = KeyPair::generate().pk;
+        let to = KeyPair::generate().pk;
+        Transaction::new(Some(from), to, amount, None, None, None, 1, None)
+    }
+
+    #[test]
+    fn test_get_limit_matches_go() {
+        let temp_dir = tempdir().unwrap();
+        let data_dir = temp_dir.path();
+        let block_store = BlockStorageDisk::new(
+            data_dir.join("blocks"),
+            data_dir.join("headers.db"),
+            false,
+            false,
+        )
+        .unwrap();
+        let ledger = LedgerDisk::new(data_dir.join("ledger.db"), block_store, false).unwrap();
+        let queue = TransactionQueueMemory::new(ledger);
+
+        let txs = [make_test_tx(1), make_test_tx(2), make_test_tx(3)];
+        let ids: Vec<TransactionID> = txs.iter().map(|t| t.id().unwrap()).collect();
+        queue.add_batch(&ids, &txs);
+
+        // limit zero returns the full queue
+        assert_eq!(queue.get(0).len(), txs.len());
+        assert_eq!(queue.get(txs.len() + 1).len(), txs.len());
+        assert_eq!(queue.get(2).len(), 2);
     }
 }
