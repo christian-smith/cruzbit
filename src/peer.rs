@@ -1668,7 +1668,7 @@ impl Peer {
                             block_id: None,
                             height: None,
                             public_key: Some(pub_key),
-                            balance: None,
+                            balance: 0,
                             error: Some(err.to_string()),
                         }))
                         .await?;
@@ -1687,7 +1687,7 @@ impl Peer {
                 block_id: Some(tip_id),
                 height: Some(tip_height),
                 public_key: Some(pub_key),
-                balance: Some(balance),
+                balance,
                 error: None,
             }))
             .await?;
@@ -1788,9 +1788,9 @@ impl Peer {
                         .send(Message::PublicKeyTransactions(
                             PublicKeyTransactionsMessage {
                                 public_key: None,
-                                start_height: None,
-                                stop_height: None,
-                                stop_index: None,
+                                start_height: 0,
+                                stop_height: 0,
+                                stop_index: 0,
                                 filter_blocks: None,
                                 error: Some(err.to_string()),
                             },
@@ -1851,9 +1851,9 @@ impl Peer {
             .send(Message::PublicKeyTransactions(
                 PublicKeyTransactionsMessage {
                     public_key: Some(pub_key),
-                    start_height: Some(start_height),
-                    stop_height: Some(stop_height),
-                    stop_index: Some(stop_index),
+                    start_height,
+                    stop_height,
+                    stop_index,
                     filter_blocks: Some(fbs),
                     error: None,
                 },
@@ -1988,7 +1988,7 @@ impl Peer {
                 out_chan_tx
                     .send(Message::PushTransactionResult(
                         PushTransactionResultMessage {
-                            transaction_id: None,
+                            transaction_id: TransactionID::default(),
                             error: Some(err.to_string()),
                         },
                     ))
@@ -2016,7 +2016,7 @@ impl Peer {
         out_chan_tx
             .send(Message::PushTransactionResult(
                 PushTransactionResultMessage {
-                    transaction_id: Some(id),
+                    transaction_id: id,
                     error: err_str,
                 },
             ))

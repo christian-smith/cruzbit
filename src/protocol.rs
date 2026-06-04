@@ -208,14 +208,18 @@ pub struct GetBalanceMessage {
 /// Send a public key's balance to a peer.
 /// MessageType::Balance
 #[serde_as]
-#[skip_serializing_none]
 #[derive(Deserialize, Serialize)]
 pub struct BalanceMessage {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub block_id: Option<BlockID>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub height: Option<u64>,
     #[serde_as(as = "Option<PublicKeySerde>")]
+    #[serde(default)]
     pub public_key: Option<PublicKey>,
-    pub balance: Option<u64>,
+    #[serde(default)]
+    pub balance: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
 }
 
@@ -285,10 +289,11 @@ pub struct PushTransactionMessage {
 
 /// Sent in response to a PushTransactionMessage.
 /// Type: PushTransactionResult
-#[skip_serializing_none]
 #[derive(Deserialize, Serialize)]
 pub struct PushTransactionResultMessage {
-    pub transaction_id: Option<TransactionID>,
+    #[serde(default)]
+    pub transaction_id: TransactionID,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
 }
 
@@ -343,16 +348,20 @@ pub struct GetPublicKeyTransactionsMessage {
 /// Used to return a list of block headers and the transactions relevant to the public key over a given height range of the block chain.
 /// MessageType:PublicKeyTransactions
 #[serde_as]
-#[skip_serializing_none]
 #[derive(Deserialize, Serialize)]
 pub struct PublicKeyTransactionsMessage {
     #[serde_as(as = "Option<PublicKeySerde>")]
+    #[serde(default)]
     pub public_key: Option<PublicKey>,
-    pub start_height: Option<u64>,
-    pub stop_height: Option<u64>,
-    pub stop_index: Option<u32>,
-    #[serde_as(as = "DefaultOnNull")]
+    #[serde(default)]
+    pub start_height: u64,
+    #[serde(default)]
+    pub stop_height: u64,
+    #[serde(default)]
+    pub stop_index: u32,
+    #[serde(default)]
     pub filter_blocks: Option<Vec<FilterBlockMessage>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
 }
 

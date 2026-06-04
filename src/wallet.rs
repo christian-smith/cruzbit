@@ -34,7 +34,7 @@ use crate::error::{ChannelError, DataError, DbError, ErrChain, JsonError, impl_d
 use crate::peer::{CONNECT_WAIT, PeerConnectionError, WRITE_WAIT};
 use crate::protocol::{
     FilterBlockMessage, FilterLoadMessage, GetBalanceMessage, GetPublicKeyTransactionsMessage,
-    GetTransactionMessage, Message, PROTOCOL, PublicKeyTransactionsMessage, PushTransactionMessage,
+    GetTransactionMessage, Message, PROTOCOL, PushTransactionMessage,
 };
 use crate::shutdown::{Shutdown, ShutdownChanReceiver, SpawnedError, shutdown_channel};
 use crate::tls::client_config;
@@ -295,10 +295,7 @@ impl Wallet {
             return Err(WalletError::WalletResultMissing);
         };
 
-        Ok((
-            b.balance.expect("result should have a balance"),
-            b.height.expect("result should have a height"),
-        ))
+        Ok((b.balance, b.height.expect("result should have a height")))
     }
 
     /// Returns a set of public key balances as well as the current block height.
@@ -442,10 +439,8 @@ impl Wallet {
 
         if let Some(err) = ptr.error {
             Err(WalletError::PushTransactionResultMessage(err))
-        } else if let Some(transaction_id) = ptr.transaction_id {
-            Ok(transaction_id)
         } else {
-            Err(WalletError::WalletResultNotFound)
+            Ok(ptr.transaction_id)
         }
     }
 
@@ -511,18 +506,13 @@ impl Wallet {
 
         if let Some(error) = pkt.error {
             Err(WalletError::PublicKeyTransactionResultMessage(error))
-        } else if let PublicKeyTransactionsMessage {
-            public_key: _public_key,
-            start_height: Some(start_height),
-            stop_height: Some(stop_height),
-            stop_index: Some(stop_index),
-            filter_blocks,
-            error: _error,
-        } = pkt
-        {
-            Ok((start_height, stop_height, stop_index, filter_blocks))
         } else {
-            Err(WalletError::WalletResultNotFound)
+            Ok((
+                pkt.start_height,
+                pkt.stop_height,
+                pkt.stop_index,
+                pkt.filter_blocks,
+            ))
         }
     }
 
