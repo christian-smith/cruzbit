@@ -252,13 +252,12 @@ impl LedgerDisk {
         pub_key: PublicKey,
         start_height: u64,
         end_height: u64,
-        mut start_index: u32,
+        start_index: u32,
         limit: usize,
     ) -> Result<(Vec<BlockID>, Vec<u32>, u64, u32), LedgerError> {
         let end_key = compute_pub_key_transaction_index_key(pub_key, Some(end_height), None);
 
-        // make it inclusive
-        start_index += 1;
+        // reverse iteration includes the start key
         let start_key =
             compute_pub_key_transaction_index_key(pub_key, Some(start_height), Some(start_index));
 
@@ -1078,6 +1077,49 @@ mod test {
         assert_eq!(ids, vec![genesis_block_id, block_id]);
         assert_eq!(indices, vec![0, 0]);
         assert_eq!(last_height, block.header.height);
+        assert_eq!(last_index, 0);
+    }
+
+    #[test]
+    fn test_get_public_key_transaction_indices_range_reverse_does_not_double_include_cursor() {
+        let temp_dir = tempdir().unwrap();
+        let data_dir = temp_dir.path();
+
+        let block_store = BlockStorageDisk::new(
+            data_dir.join("blocks"),
+            data_dir.join("headers.db"),
+            false,
+            false,
+        )
+        .unwrap();
+
+        let mut genesis_block = make_test_block(0);
+        genesis_block.header.height += 1;
+        let genesis_block_id = genesis_block.id().unwrap();
+        block_store
+            .store(&genesis_block_id, &genesis_block, now_as_secs())
+            .unwrap();
+
+        let mut block = genesis_block.clone();
+        block.header.height += 1;
+        block.header.previous = genesis_block_id;
+        block.transactions[0].time += 1;
+        let block_id = block.id().unwrap();
+        block_store.store(&block_id, &block, now_as_secs()).unwrap();
+
+        let ledger = LedgerDisk::new(data_dir.join("ledger.db"), block_store, false).unwrap();
+        ledger
+            .connect_block(&genesis_block_id, &genesis_block)
+            .unwrap();
+        ledger.connect_block(&block_id, &block).unwrap();
+
+        let tx = &genesis_block.transactions[0];
+
+        let (ids, indices, _, last_index) = ledger
+            .get_public_key_transaction_indices_range(tx.to, block.header.height, 1, 0, 100)
+            .unwrap();
+        assert_eq!(ids, vec![block_id, genesis_block_id]);
+        assert_eq!(indices, vec![0, 0]);
         assert_eq!(last_index, 0);
     }
 
