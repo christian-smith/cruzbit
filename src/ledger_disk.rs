@@ -756,8 +756,11 @@ impl Ledger for LedgerDisk {
         for key in iter {
             let (_, height, index) = decode_pub_key_transaction_index_key(key)?;
 
-            if index == 0 && height > current_height.saturating_sub(COINBASE_MATURITY) {
-                // coinbase isn't mature
+            // before maturity, every coinbase height is immature
+            if index == 0
+                && (current_height < COINBASE_MATURITY
+                    || height > current_height - COINBASE_MATURITY)
+            {
                 continue;
             }
 
