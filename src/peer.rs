@@ -1767,10 +1767,26 @@ impl Peer {
         start_height: u64,
         end_height: u64,
         start_index: u32,
-        mut limit: usize,
+        limit: Option<usize>,
         out_chan_tx: &OutChanSender,
     ) -> Result<(), PeerError> {
         info!("Received get_public_key_transactions from {}", self.addr);
+
+        let Some(mut limit) = limit else {
+            out_chan_tx
+                .send(Message::PublicKeyTransactions(
+                    PublicKeyTransactionsMessage {
+                        public_key: None,
+                        start_height: 0,
+                        stop_height: 0,
+                        stop_index: 0,
+                        filter_blocks: None,
+                        error: None,
+                    },
+                ))
+                .await?;
+            return Ok(());
+        };
         // enforce our limit
         if limit > 32 || limit == 0 {
             limit = 32;

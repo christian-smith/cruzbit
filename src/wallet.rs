@@ -490,7 +490,7 @@ impl Wallet {
                     start_height,
                     start_index,
                     end_height,
-                    limit,
+                    limit: Some(limit),
                 }),
                 result_chan_tx,
             ))

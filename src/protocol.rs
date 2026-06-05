@@ -342,7 +342,12 @@ pub struct GetPublicKeyTransactionsMessage {
     pub start_height: u64,
     pub start_index: u32,
     pub end_height: u64,
-    pub limit: usize,
+    #[serde(
+        default = "default_public_key_transaction_limit",
+        deserialize_with = "deserialize_public_key_transaction_limit",
+        serialize_with = "serialize_public_key_transaction_limit"
+    )]
+    pub limit: Option<usize>,
 }
 
 /// Used to return a list of block headers and the transactions relevant to the public key over a given height range of the block chain.
@@ -517,8 +522,46 @@ where
     Ok(ExportedCuckooFilter { values, length })
 }
 
+fn default_public_key_transaction_limit() -> Option<usize> {
+    Some(0)
+}
+
+fn serialize_public_key_transaction_limit<S>(
+    limit: &Option<usize>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    match limit {
+        Some(limit) => {
+            serializer.serialize_u64(u64::try_from(*limit).map_err(serde::ser::Error::custom)?)
+        }
+        None => serializer.serialize_i64(-1),
+    }
+}
+
+fn deserialize_public_key_transaction_limit<'de, D>(
+    deserializer: D,
+) -> Result<Option<usize>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let Some(limit) = Option::<i64>::deserialize(deserializer)? else {
+        return Ok(Some(0));
+    };
+    if limit < 0 {
+        return Ok(None);
+    }
+    usize::try_from(limit)
+        .map(Some)
+        .map_err(serde::de::Error::custom)
+}
+
 #[cfg(test)]
 mod test {
+    use ed25519_compact::KeyPair;
+
     use super::*;
     use crate::block::test_utils::make_test_block;
 
@@ -555,5 +598,15 @@ mod test {
             block.transactions[0].to,
             block_message.block.unwrap().transactions[0].to
         );
+    }
+
+    #[test]
+    fn test_deserialize_negative_public_key_transaction_limit() {
+        let public_key = KeyPair::generate().pk;
+        let json = r#"{"public_key":""#.to_owned()
+            + &public_key.as_base64()
+            + r#"","start_height":0,"start_index":0,"end_height":0,"limit":-1}"#;
+        let message = serde_json::from_str::<GetPublicKeyTransactionsMessage>(&json).unwrap();
+        assert_eq!(message.limit, None);
     }
 }
