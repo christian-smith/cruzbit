@@ -84,7 +84,8 @@ impl BlockStorage for BlockStorageDisk {
             let block_bytes = serde_json::to_vec(&block).map_err(JsonError::Serialize)?;
             io::copy(&mut &block_bytes[..], &mut encoder)
                 .map_err(|err| FileError::Compress(block_path.clone(), err))?;
-            let (_output, _result) = encoder.finish();
+            let (_output, result) = encoder.finish();
+            result.map_err(|err| FileError::Compress(block_path.clone(), err))?;
             zout
         } else {
             serde_json::to_vec(&block).map_err(JsonError::Serialize)?
