@@ -307,6 +307,12 @@ async fn run() -> Result<(), ClientError> {
     if num_miners > 0 {
         let (hash_update_chan_tx, hash_update_chan_rx) = channel(num_miners);
 
+        // shutdown order keeps the hash-rate receiver open while miners stop
+        let (shutdown_chan_tx, shutdown_chan_rx) = shutdown_channel();
+        let hashrate_monitor =
+            HashrateMonitor::new(num_miners, hash_update_chan_rx, shutdown_chan_rx);
+        shutdowns.push(Shutdown::new(hashrate_monitor.spawn(), shutdown_chan_tx));
+
         // create and run miners
         for i in 0..num_miners {
             let (shutdown_chan_tx, shutdown_chan_rx) = shutdown_channel();
@@ -324,12 +330,6 @@ async fn run() -> Result<(), ClientError> {
 
             shutdowns.push(Shutdown::new(miner.spawn(), shutdown_chan_tx));
         }
-
-        // print hashrate updates
-        let (shutdown_chan_tx, shutdown_chan_rx) = shutdown_channel();
-        let hashrate_monitor =
-            HashrateMonitor::new(num_miners, hash_update_chan_rx, shutdown_chan_rx);
-        shutdowns.push(Shutdown::new(hashrate_monitor.spawn(), shutdown_chan_tx));
     } else {
         info!("Mining is currently disabled")
     }
