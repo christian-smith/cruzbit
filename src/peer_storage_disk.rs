@@ -334,8 +334,9 @@ impl PeerInfo {
         };
 
         let now = now_as_duration();
-        let hours_since_last_seen = (now - last_seen).as_secs() / (60 * 60);
-        let minutes_since_last_attempt = (now - self.last_attempt).as_secs() / 60;
+        // saturate persisted timestamps under backward clock skew
+        let hours_since_last_seen = now.saturating_sub(last_seen).as_secs() / (60 * 60);
+        let minutes_since_last_attempt = now.saturating_sub(self.last_attempt).as_secs() / 60;
         let hours_since_last_attempt = minutes_since_last_attempt / 60;
 
         if hours_since_last_seen == 0 {
@@ -357,7 +358,7 @@ impl PeerInfo {
         let week = Duration::from_secs(7 * 24 * 60 * 60);
 
         let now = now_as_duration();
-        now - self.last_success > week
+        now.saturating_sub(self.last_success) > week
     }
 
     /// Helper to write the peer info to a batch
