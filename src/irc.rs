@@ -125,8 +125,7 @@ impl IRC {
 
     async fn handle_irc_peer(&self, username: &str, hostname: &str) {
         if !username.is_empty() {
-            // pop off the ~
-            let username = username[1..].to_owned();
+            let username: String = username.chars().filter(|c| c.is_ascii_digit()).collect();
             match username
                 .parse::<u16>()
                 .map_err(|err| IrcError::Parsing(ParsingError::Integer(err)))
