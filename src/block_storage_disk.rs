@@ -49,10 +49,9 @@ impl BlockStorageDisk {
             }
         }
 
-        // open the database
-        // TODO: open database as read only when option is available
+        // read-only mode must not create a missing DB
         let mut options = Options::new();
-        options.create_if_missing = true;
+        options.create_if_missing = !read_only;
         let db = Database::open(&db_path, &options).map_err(|err| DbError::Open(db_path, err))?;
         Ok(Arc::new(Self {
             db,
