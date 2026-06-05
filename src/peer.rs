@@ -839,6 +839,10 @@ impl Peer {
                                     }
                                 }
 
+                                Message::Block(None) => {
+                                    break Err(PeerError::EmptyBlockReceived(self.addr))
+                                }
+
                                 Message::FilterAdd(fa) => {
                                     if let Err(err) = self.on_filter_add(fa.public_keys, &out_chan_tx).await {
                                         error!("{:?}, from: {}", err, self.addr);
