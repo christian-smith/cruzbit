@@ -409,7 +409,10 @@ async fn run() -> Result<(), ClientError> {
         shutdown_chan_rx,
     );
     shutdowns.push(Shutdown::new(peer_manager.spawn(), shutdown_chan_tx));
+
+    info!("Client started");
     let _ = signal::ctrl_c().await;
+    info!("Shutting down...");
     for shutdown in shutdowns.into_iter().rev() {
         shutdown.send().await;
     }

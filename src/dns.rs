@@ -63,6 +63,7 @@ impl DnsSeeder {
     pub async fn run(mut self) -> Result<(), DnsSeederError> {
         let mut buf = vec![0; 512];
 
+        info!("Starting DNS server");
         loop {
             tokio::select! {
                 recv = self.sock.recv_from(&mut buf) => {
@@ -207,6 +208,7 @@ pub async fn query_for_peers() -> Result<Vec<String>, DnsSeederError> {
             }
         };
 
+        info!("Querying DNS seeder {seeder}");
         match handle_query(&socket, seeder, &message).await {
             Ok(seeder_peers) => peers.extend(seeder_peers),
             Err(err) => {

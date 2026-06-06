@@ -569,6 +569,7 @@ impl PeerManager {
         let server = HttpServer::new(addr, server_config, Arc::clone(self), shutdown_chan_rx);
         let mut server_shutdown = self.server_shutdown.lock().unwrap();
         *server_shutdown = Some(Shutdown::new(server.spawn(), shutdown_chan_tx));
+        info!("Listening for new peer connections");
 
         Ok(())
     }
