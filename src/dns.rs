@@ -22,7 +22,7 @@ use crate::utils::{now_as_duration, resolve_host};
 
 const DNAME: &str = "client.cruzbit";
 
-const SEEDERS: &[&str] = &["45.32.6.23:8831", "66.117.62.146:8831", "dns.cruzb.it:8831"];
+const SEEDERS: &[&str] = &["172.104.12.122:8831"];
 
 /// Returns known peers in response to DNS queries.
 pub struct DnsSeeder {
