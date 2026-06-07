@@ -78,10 +78,10 @@ impl DnsSeeder {
                                 }
                             };
 
-                           if let Err(err) = self.handle_query(request, addr).await {
-                               error!("{err:?}");
-                               continue;
-                           };
+                            if let Err(err) = self.handle_query(request, addr).await {
+                                error!("{err:?}");
+                                continue;
+                            };
                         },
                         Err(err) => {
                             error!("{err:?}");
