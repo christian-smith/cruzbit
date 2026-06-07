@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2026-06-07
+
+### Added
+- Added startup, shutdown, DNS seeder, and DNS query progress logging.
+- Added Linux Mesa Rusticl OpenCL setup notes for AMD GPU mining.
+
+### Changed
+- Transaction queue locking now uses one shared lock for queue state and balance cache state.
+- DNS peer discovery now uses the current active seeder.
+
+### Fixed
+- Consensus now matches Go transaction-series selection for coinbase and non-coinbase transactions.
+- Consensus now matches Go retarget timespan handling, full block-header equality, and invalid chain-work handling.
+- Ledger transaction history pagination now matches Go reverse-range cursor behavior.
+- Ledger historical balance lookups now match Go coinbase maturity behavior at low chain heights.
+- Mining now matches Go's initial nonce range.
+- Protocol response messages now preserve Go zero-value fields for balance, pushed transaction, and public-key transaction responses.
+- Transaction queue mining fetches now treat a zero limit as the full queue.
+- Read-only block storage no longer creates missing databases, and LZ4 finalization errors are now propagated.
+- Peers now reject empty block messages and respond gracefully to negative public-key transaction limits.
+- Peer storage now handles backward clock skew without duration underflow.
+- Client shutdown now stops miners while the hash-rate monitor can still receive final updates.
+- IRC peer discovery now parses ports by stripping non-digit characters.
+
 ## [1.3.0] - 2026-05-31
 
 ### Added
