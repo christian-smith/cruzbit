@@ -91,8 +91,8 @@ Release builds are published in these flavors:
 
 1. Download the archive matching your platform from the latest release.
 2. Extract:
-   - Linux / macOS: `tar -xzf cruzbit-v<version>-<target>[-cuda|-opencl].tar.gz`
-   - Windows: unzip `cruzbit-v<version>-<target>[-cuda|-opencl].zip`
+  - Linux / macOS: `tar -xzf cruzbit-v<version>-<target>[-cuda|-opencl].tar.gz`
+  - Windows: unzip `cruzbit-v<version>-<target>[-cuda|-opencl].zip`
 3. Run `./client --help` to verify.
 
 The CUDA and OpenCL wrapper code is linked into the release binaries. GPU driver runtimes (`libcuda`, `libOpenCL`, and vendor ICDs) still need to be present on your system for the GPU variants.
@@ -141,6 +141,25 @@ Instead of mining with a single public key, you can use the wallet to generate m
 
 #### Mining with a single key
 ```client --datadir datadir --numminers 1 --pubkey [pub key from wallet]```
+
+#### OpenCL on Linux (Mesa Rusticl)
+When mining on AMD GPUs with Mesa, use Rusticl instead of the older Clover OpenCL driver. The miner's OpenCL kernel uses features that Clover's OpenCL 1.1 implementation cannot parse, while Rusticl exposes OpenCL 3.0 on current Mesa drivers.
+
+Install the ICD loader, Mesa's OpenCL driver package, and `clinfo`:
+
+- Debian / Ubuntu: `apt install ocl-icd-libopencl1 mesa-opencl-icd clinfo`
+- Fedora: `dnf install ocl-icd mesa-libOpenCL clinfo`
+- Arch: `pacman -S ocl-icd opencl-rusticl-mesa clinfo`
+
+Then run the client with Rusticl selected. The ICD file path can vary by distribution, so check `/etc/OpenCL/vendors` if this path does not exist:
+
+```
+OCL_ICD_VENDORS=/etc/OpenCL/vendors/rusticl.icd \
+RUSTICL_ENABLE=radeonsi \
+client --datadir datadir --numminers 1 --keyfile keys.txt
+```
+
+For AMD cards, `RUSTICL_ENABLE=radeonsi` enables Rusticl for the RadeonSI Gallium driver. Verify the device is visible with `RUSTICL_ENABLE=radeonsi clinfo` before mining.
 
 #### Not interested in mining but want to play with cruzbit?
 No problem! You can run the client with `--numminers 0` so that it can function as your wallet peer.
